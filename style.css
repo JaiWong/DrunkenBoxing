@@ -20,18 +20,20 @@ html, body {
     justify-content: center;
     width: 100vw;
     height: 100vh;
-    padding: 0;
+    padding: 4px;
+    background: #0a0000;
 }
 
 canvas {
     display: block;
-    width: 100vw;
-    height: calc(100vh - 40px);
-    border: none;
-    box-shadow: none;
+    width: calc(100vw - 8px);
+    height: calc(100vh - 48px);
+    border: 2px solid #aa0000;
+    box-shadow: 0 0 12px rgba(255,0,0,0.3), inset 0 0 8px rgba(255,0,0,0.05);
     image-rendering: pixelated;
     cursor: crosshair;
     background: #000;
+    border-radius: 4px;
 }
 
 #controls-hint {
@@ -57,8 +59,8 @@ canvas {
 /* Responsive breakpoints */
 @media (max-width: 850px) {
     canvas {
-        width: 100vw;
-        height: calc(100vh - 36px);
+        width: calc(100vw - 8px);
+        height: calc(100vh - 44px);
     }
     #controls-hint {
         height: 36px;
@@ -67,9 +69,11 @@ canvas {
 }
 
 @media (max-width: 600px) {
+    .game-wrapper { padding: 2px; }
     canvas {
-        width: 100vw;
-        height: calc(100vh - 52px);
+        width: calc(100vw - 4px);
+        height: calc(100vh - 56px);
+        border-width: 1px;
     }
     #controls-hint {
         height: 52px;
@@ -85,16 +89,17 @@ canvas {
     #controls-hint {
         display: none;
     }
+    .game-wrapper { padding: 2px; }
     canvas {
-        width: 100vw;
-        height: 100vh;
+        width: calc(100vw - 4px);
+        height: calc(100vh - 4px);
     }
 }
 
 @media (orientation: portrait) and (max-width: 500px) {
     canvas {
-        width: 100vw;
-        height: calc(100vh - 56px);
+        width: calc(100vw - 4px);
+        height: calc(100vh - 58px);
     }
     #controls-hint {
         height: 56px;

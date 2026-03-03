@@ -191,7 +191,7 @@ const DIFF_MULT = [
     { pDmg: 1.0, eHp: 1.0, eDmg: 1.0 },
     { pDmg: 1.3, eHp: 1.2, eDmg: 1.2 },
 ];
-const SETTINGS_OPTS = ['Difficulty', 'Sensitivity', 'Speed', 'Screen Shake', 'Minimap', 'Back'];
+const SETTINGS_OPTS = ['Difficulty', 'Sensitivity', 'Speed', 'Screen Shake', 'Minimap', 'Back', 'Quit to Menu'];
 
 // ─── Villain Data ────────────────────────────────────────────────────
 const VILLAIN_DATA = {
@@ -525,6 +525,9 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
 // ─── Mouse / Click Input ─────────────────────────────────────────────
+let mouseX = W / 2, mouseY = H / 2;  // Track mouse position on canvas
+let mouseOnCanvas = false;
+
 function getCanvasCoords(e) {
     let rect = canvas.getBoundingClientRect();
     let scaleX = W / rect.width;
@@ -532,14 +535,18 @@ function getCanvasCoords(e) {
     return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
 }
 
+canvas.addEventListener('mouseenter', () => { mouseOnCanvas = true; });
+canvas.addEventListener('mouseleave', () => { mouseOnCanvas = false; });
+
 canvas.addEventListener('mousemove', e => {
     let { x, y } = getCanvasCoords(e);
+    mouseX = x; mouseY = y;
     switch (state) {
         case ST.MENU: {
             let startY = H * 0.46;
             for (let i = 0; i < MENU_OPTIONS.length; i++) {
                 let iy = startY + i * 42;
-                if (y >= iy - 18 && y <= iy + 18 && x >= W * 0.2 && x <= W * 0.8) {
+                if (y >= iy - 18 && y <= iy + 18 && x >= W * 0.15 && x <= W * 0.85) {
                     if (menuCursor !== i) { menuCursor = i; SFX.menuMove(); }
                     break;
                 }
@@ -661,6 +668,7 @@ function handleCanvasClick(x, y, button) {
                     } else if (i === 3) { settings.screenShake = !settings.screenShake; SFX.settingChange(); }
                     else if (i === 4) { settings.showMinimap = !settings.showMinimap; SFX.settingChange(); }
                     else if (i === 5) { SFX.menuSelect(); exitSettings(); }
+                    else if (i === 6) { SFX.menuSelect(); settingsPrevState = null; state = ST.MENU; menuCursor = 0; }
                     return;
                 }
             }
@@ -712,7 +720,11 @@ function handleCanvasClick(x, y, button) {
                 useStairs();
                 return;
             }
-            // Left/right click in explore = nothing special (movement is keyboard)
+            // Click drink button (bottom-left, matches explore HUD drink button)
+            if (x >= 4 && x <= 142 && y >= H - 100 && y <= H - 52) {
+                drinkBottle();
+                return;
+            }
             break;
         }
         case ST.CUTSCENE:
@@ -803,6 +815,9 @@ function handleSettingsInput(e) {
             case 4: settings.showMinimap = !settings.showMinimap; SFX.settingChange(); break;
             case 5:
                 if (e.key === 'Enter') { SFX.menuSelect(); exitSettings(); }
+                break;
+            case 6:
+                if (e.key === 'Enter') { SFX.menuSelect(); settingsPrevState = null; state = ST.MENU; menuCursor = 0; }
                 break;
         }
     }
@@ -1251,7 +1266,11 @@ function renderExploreHUD() {
     let bags = enemies.filter(e => e.alive && e.isBag).length;
     ctx.fillText('Fighters: ' + alive, 10, H - 56);
     if (bags > 0) { ctx.fillStyle = '#cc8800'; ctx.fillText('Bags: ' + bags, 10, H - 72); }
-    ctx.fillStyle = '#44ff44'; ctx.fillText('Bottles: ' + inventory.bottles, 10, bags > 0 ? H - 88 : H - 72);
+    // Clickable drink button
+    let drinkY = bags > 0 ? H - 92 : H - 76;
+    ctx.fillStyle = 'rgba(0,80,0,0.3)'; ctx.fillRect(8, drinkY - 4, 130, 24);
+    ctx.strokeStyle = '#44ff44'; ctx.lineWidth = 1; ctx.strokeRect(8, drinkY - 4, 130, 24);
+    ctx.fillStyle = '#44ff44'; ctx.fillText('Bottles: ' + inventory.bottles, 14, drinkY + 12);
     ctx.fillStyle = '#ffcc00'; ctx.fillText('Coins: ' + saveData.coins, 10, bags > 0 ? H - 104 : H - 88);
     if (drunkLevel === 1) { ctx.fillStyle = '#ffaa00'; ctx.fillText('TIPSY', 10, bags > 0 ? H - 120 : H - 104); }
     else if (drunkLevel >= 2) { ctx.fillStyle = '#ff4400'; ctx.fillText('DRUNK', 10, bags > 0 ? H - 120 : H - 104); }
@@ -1998,6 +2017,7 @@ function renderSettings() {
         let label = prefix + SETTINGS_OPTS[i];
         // Show "Resume" instead of "Back" when accessed from gameplay
         if (i === 5 && settingsPrevState !== null) label = prefix + 'Resume';
+        if (i === 6) { ctx.fillStyle = sel ? '#ff4444' : '#663333'; }
         ctx.fillText(label, W * 0.2, y);
         ctx.textAlign = 'right';
         ctx.fillStyle = sel ? '#ffffff' : '#aa8888';
@@ -2008,6 +2028,7 @@ function renderSettings() {
             case 3: ctx.fillText(settings.screenShake ? 'ON' : 'OFF', W * 0.8, y); break;
             case 4: ctx.fillText(settings.showMinimap ? 'ON' : 'OFF', W * 0.8, y); break;
             case 5: break;
+            case 6: break;
         }
         if (sel) {
             ctx.fillStyle = 'rgba(255,0,0,0.08)';
@@ -2087,6 +2108,22 @@ function renderExplore() {
     renderVignette();
     applyDrunkEffects();
     renderNotifications();
+
+    // Mouse turn indicator: small arrow showing turn direction
+    if (mouseOnCanvas) {
+        let offset = mouseX - W / 2;
+        let deadZone = W * 0.08;
+        if (Math.abs(offset) > deadZone) {
+            let sign = offset > 0 ? 1 : -1;
+            let mag = Math.min(1, (Math.abs(offset) - deadZone) / (W / 2 - deadZone));
+            ctx.globalAlpha = 0.2 + mag * 0.3;
+            ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px Courier New';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(sign > 0 ? '\u25B6' : '\u25C0', W / 2 + sign * 60, H / 2);
+            ctx.globalAlpha = 1;
+            ctx.textBaseline = 'alphabetic';
+        }
+    }
 }
 
 // ─── Visual Effects ──────────────────────────────────────────────────
@@ -2155,6 +2192,17 @@ function updateExplore(dt) {
     if ((keys['s'] || keys['arrowdown']) && state === ST.EXPLORE) { moveX -= Math.cos(player.angle) * moveSpeed * dt; moveY -= Math.sin(player.angle) * moveSpeed * dt; }
     if ((keys['a'] || keys['arrowleft']) && state === ST.EXPLORE) player.angle -= turnSpeed * dt;
     if ((keys['d'] || keys['arrowright']) && state === ST.EXPLORE) player.angle += turnSpeed * dt;
+
+    // Mouse-based turning: mouse X position relative to canvas center
+    if (mouseOnCanvas) {
+        let deadZone = W * 0.08; // small dead zone in the center so tiny movements don't turn
+        let offset = mouseX - W / 2;
+        if (Math.abs(offset) > deadZone) {
+            let sign = offset > 0 ? 1 : -1;
+            let magnitude = (Math.abs(offset) - deadZone) / (W / 2 - deadZone); // 0..1
+            player.angle += sign * magnitude * turnSpeed * 1.2 * dt;
+        }
+    }
 
     if (drunkLevel >= 2) player.angle += Math.sin(Date.now() * 0.001) * 0.0008 * dt;
     player.angle = ((player.angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
