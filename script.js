@@ -524,6 +524,209 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
+// ─── Mouse / Click Input ─────────────────────────────────────────────
+function getCanvasCoords(e) {
+    let rect = canvas.getBoundingClientRect();
+    let scaleX = W / rect.width;
+    let scaleY = H / rect.height;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+}
+
+canvas.addEventListener('mousemove', e => {
+    let { x, y } = getCanvasCoords(e);
+    switch (state) {
+        case ST.MENU: {
+            let startY = H * 0.46;
+            for (let i = 0; i < MENU_OPTIONS.length; i++) {
+                let iy = startY + i * 42;
+                if (y >= iy - 18 && y <= iy + 18 && x >= W * 0.2 && x <= W * 0.8) {
+                    if (menuCursor !== i) { menuCursor = i; SFX.menuMove(); }
+                    break;
+                }
+            }
+            break;
+        }
+        case ST.SHOP: {
+            let items = shopTab === 0 ? SKINS : GLOVES_SHOP;
+            let visibleItems = Math.min(items.length, 8);
+            let scrollOffset = Math.max(0, shopCursor - visibleItems + 3);
+            scrollOffset = Math.min(scrollOffset, Math.max(0, items.length - visibleItems));
+            let shopStartY = 130;
+            for (let vi = 0; vi < visibleItems; vi++) {
+                let i = vi + scrollOffset;
+                if (i >= items.length) break;
+                let iy = shopStartY + vi * 38;
+                if (y >= iy - 14 && y <= iy + 20 && x >= 20 && x <= W * 0.46) {
+                    if (shopCursor !== i) { shopCursor = i; SFX.menuMove(); }
+                    break;
+                }
+            }
+            break;
+        }
+        case ST.SETTINGS: {
+            let setStartY = 120;
+            for (let i = 0; i < SETTINGS_OPTS.length; i++) {
+                let iy = setStartY + i * 48;
+                if (y >= iy - 18 && y <= iy + 18 && x >= W * 0.15 && x <= W * 0.85) {
+                    if (settingsCursor !== i) { settingsCursor = i; SFX.menuMove(); }
+                    break;
+                }
+            }
+            break;
+        }
+    }
+});
+
+// Prevent right-click context menu on canvas
+canvas.addEventListener('contextmenu', e => { e.preventDefault(); });
+
+canvas.addEventListener('click', e => {
+    let { x, y } = getCanvasCoords(e);
+    ensureAudio(); // Resume audio context on first click
+    handleCanvasClick(x, y, 'left');
+});
+
+canvas.addEventListener('contextmenu', e => { e.preventDefault(); });
+canvas.addEventListener('mousedown', e => {
+    if (e.button === 2) {
+        e.preventDefault();
+        let { x, y } = getCanvasCoords(e);
+        ensureAudio();
+        handleCanvasClick(x, y, 'right');
+    }
+});
+
+function getCombatBtnLayout(en) {
+    let btnH = 40, btnW = 90, gap = 10;
+    let allBtns = en && en.isBag
+        ? [{l:'JAB',k:'1'},{l:'CROSS',k:'2'},{l:'UPPER',k:'3'}]
+        : [{l:'JAB',k:'1'},{l:'CROSS',k:'2'},{l:'UPPER',k:'3'},{l:'SPECIAL',k:'Q'},{l:'BLOCK',k:' '},{l:'DRINK',k:'Shift'}];
+    let row1 = allBtns.slice(0, en && en.isBag ? 3 : 4);
+    let row2 = allBtns.slice(en && en.isBag ? 3 : 4);
+    return { row1, row2, btnH, btnW, gap };
+}
+
+function handleCanvasClick(x, y, button) {
+    switch (state) {
+        case ST.MENU: {
+            let startY = H * 0.46;
+            for (let i = 0; i < MENU_OPTIONS.length; i++) {
+                let iy = startY + i * 42;
+                if (y >= iy - 18 && y <= iy + 18 && x >= W * 0.15 && x <= W * 0.85) {
+                    menuCursor = i;
+                    SFX.menuSelect();
+                    selectMenuOption();
+                    return;
+                }
+            }
+            break;
+        }
+        case ST.SHOP: {
+            // Tab buttons
+            if (x >= W * 0.05 && x <= W * 0.35) {
+                if (y >= 58 && y <= 82) { shopTab = 0; shopCursor = 0; SFX.menuMove(); return; }
+                if (y >= 80 && y <= 104) { shopTab = 1; shopCursor = 0; SFX.menuMove(); return; }
+            }
+            let items = shopTab === 0 ? SKINS : GLOVES_SHOP;
+            let visibleItems = Math.min(items.length, 8);
+            let scrollOffset = Math.max(0, shopCursor - visibleItems + 3);
+            scrollOffset = Math.min(scrollOffset, Math.max(0, items.length - visibleItems));
+            let shopStartY = 130;
+            for (let vi = 0; vi < visibleItems; vi++) {
+                let idx = vi + scrollOffset;
+                if (idx >= items.length) break;
+                let iy = shopStartY + vi * 38;
+                if (y >= iy - 14 && y <= iy + 20 && x >= 20 && x <= W * 0.46) {
+                    if (shopCursor === idx) shopAction();
+                    else { shopCursor = idx; SFX.menuMove(); }
+                    return;
+                }
+            }
+            break;
+        }
+        case ST.SETTINGS: {
+            let setStartY = 120;
+            for (let i = 0; i < SETTINGS_OPTS.length; i++) {
+                let iy = setStartY + i * 48;
+                if (y >= iy - 18 && y <= iy + 18 && x >= W * 0.15 && x <= W * 0.85) {
+                    settingsCursor = i;
+                    if (i <= 2) {
+                        let dir = x < W * 0.5 ? -1 : 1;
+                        switch (i) {
+                            case 0: settings.difficulty = Math.max(0, Math.min(2, settings.difficulty + dir)); break;
+                            case 1: settings.sensitivity = Math.round(Math.max(0.3, Math.min(3.0, settings.sensitivity + dir * 0.1)) * 10) / 10; break;
+                            case 2: settings.speed = Math.round(Math.max(0.3, Math.min(3.0, settings.speed + dir * 0.1)) * 10) / 10; break;
+                        }
+                        SFX.settingChange();
+                    } else if (i === 3) { settings.screenShake = !settings.screenShake; SFX.settingChange(); }
+                    else if (i === 4) { settings.showMinimap = !settings.showMinimap; SFX.settingChange(); }
+                    else if (i === 5) { SFX.menuSelect(); exitSettings(); }
+                    return;
+                }
+            }
+            break;
+        }
+        case ST.COMBAT: {
+            let en = combat.enemy;
+            // Left click anywhere in combat area = Jab (key 1); Right click = Cross (key 2)
+            // But first check if they clicked a specific button
+            let layout = getCombatBtnLayout(en);
+            let { row1, row2, btnH, btnW, gap } = layout;
+            let r1Y = H - btnH - 6 - (row2.length > 0 ? btnH + 6 : 0);
+            let r1Total = row1.length * (btnW + gap) - gap;
+            let r1X = (W - r1Total) / 2;
+            for (let bi = 0; bi < row1.length; bi++) {
+                let bx = r1X + bi * (btnW + gap);
+                if (x >= bx && x <= bx + btnW && y >= r1Y && y <= r1Y + btnH) {
+                    handleCombatKey(row1[bi].k, row1[bi].k.toLowerCase());
+                    return;
+                }
+            }
+            if (row2.length > 0) {
+                let r2Y = H - btnH - 6;
+                let r2Total = row2.length * (btnW + gap) - gap;
+                let r2X = (W - r2Total) / 2;
+                for (let bi = 0; bi < row2.length; bi++) {
+                    let bx = r2X + bi * (btnW + gap);
+                    if (x >= bx && x <= bx + btnW && y >= r2Y && y <= r2Y + btnH) {
+                        if (row2[bi].k === ' ') { keys[' '] = true; setTimeout(() => { keys[' '] = false; }, 300); }
+                        else if (row2[bi].k === 'Shift') drinkBottle();
+                        else handleCombatKey(row2[bi].k, row2[bi].k.toLowerCase());
+                        return;
+                    }
+                }
+            }
+            // Dodge zones
+            if (y >= H * 0.2 && y <= H * 0.65) {
+                if (x < W * 0.12) { handleCombatKey('a', 'a'); return; }
+                if (x > W * 0.88) { handleCombatKey('d', 'd'); return; }
+            }
+            // Default: left click = jab, right click = cross (if not on a button)
+            if (button === 'left') handleCombatKey('1', '1');
+            else if (button === 'right') handleCombatKey('2', '2');
+            break;
+        }
+        case ST.EXPLORE: {
+            // Click stair prompt area
+            if (stairPrompt && y >= H / 2 + 30 && y <= H / 2 + 68) {
+                useStairs();
+                return;
+            }
+            // Left/right click in explore = nothing special (movement is keyboard)
+            break;
+        }
+        case ST.CUTSCENE:
+            SFX.cutsceneNext(); advanceCutscene();
+            break;
+        case ST.GAMEOVER:
+        case ST.WIN:
+            SFX.menuSelect(); state = ST.MENU; menuCursor = 0;
+            break;
+        case ST.FIGHT_INTRO:
+            break;
+    }
+}
+
 function selectMenuOption() {
     switch (menuCursor) {
         case 0: startGame(); break;
@@ -1056,10 +1259,17 @@ function renderExploreHUD() {
     ctx.fillStyle = '#ff4444'; ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
     ctx.fillText('FLOOR ' + lvl.floor + ': ' + lvl.name, W / 2, 20);
     if (stairPrompt) {
-        ctx.fillStyle = '#00ff88'; ctx.font = 'bold 18px Courier New'; ctx.textAlign = 'center';
-        let txt = stairPrompt === 'up' ? '[ E ] GO UPSTAIRS' : '[ E ] GO DOWNSTAIRS';
+        // Clickable stair button
+        let stTxt = stairPrompt === 'up' ? 'GO UPSTAIRS [E]' : 'GO DOWNSTAIRS [E]';
+        let stBW = 240, stBH = 36;
+        let stBX = W / 2 - stBW / 2, stBY = H / 2 + 32;
+        ctx.fillStyle = 'rgba(0,180,80,0.3)';
+        ctx.fillRect(stBX, stBY, stBW, stBH);
+        ctx.strokeStyle = '#00ff88'; ctx.lineWidth = 2;
+        ctx.strokeRect(stBX, stBY, stBW, stBH);
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
         ctx.shadowColor = '#00ff88'; ctx.shadowBlur = 10;
-        ctx.fillText(txt, W / 2, H / 2 + 50);
+        ctx.fillText(stTxt, W / 2, stBY + stBH / 2 + 1);
         ctx.shadowBlur = 0;
     }
 }
@@ -1132,17 +1342,15 @@ function renderCombatScene() {
     // XP Bar
     drawXPBar(W / 2 - 100, 36, 200, 10);
 
-    ctx.fillStyle = '#ff4444'; ctx.font = '14px Courier New'; ctx.textAlign = 'center';
-    ctx.fillText('Score: ' + player.score, W / 2, H - 10);
-    ctx.fillStyle = '#ffcc00'; ctx.font = '13px Courier New'; ctx.textAlign = 'left';
-    ctx.fillText('Coins: ' + saveData.coins, 10, H - 10);
+    // Top-right info
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 13px Courier New'; ctx.textAlign = 'right';
+    ctx.fillText('Score: ' + player.score + '  |  Coins: ' + saveData.coins, W - 10, H - 4);
     if (!en.isBag) {
-        ctx.fillStyle = '#44ff44'; ctx.textAlign = 'right';
-        ctx.fillText('Bottles: ' + inventory.bottles + '  [SHIFT]', W - 10, H - 10);
+        ctx.fillStyle = '#88ff88'; ctx.textAlign = 'left';
+        ctx.fillText('Bottles: ' + inventory.bottles, 10, H - 4);
     }
-
-    ctx.fillStyle = '#cc4444'; ctx.font = '12px Courier New'; ctx.textAlign = 'center';
-    ctx.fillText('Floor ' + LEVELS[currentLevel].floor, W / 2, H - 26);
+    ctx.fillStyle = '#ff6666'; ctx.font = '12px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText('Floor ' + LEVELS[currentLevel].floor, W / 2, 58);
 
     if (combat.hitFlash > 0) { ctx.fillStyle = 'rgba(255,0,0,' + (combat.hitFlash / 300) + ')'; ctx.fillRect(0, 0, W, H); }
     if (combat.msgTimer > 0) {
@@ -1160,6 +1368,73 @@ function renderCombatScene() {
 
     renderParticles();
     applyDrunkEffects();
+
+    // ─── Clickable Combat Buttons ───────────────────────────────────
+    let layout = getCombatBtnLayout(en);
+    let { row1, row2, btnH: bH, btnW: bW, gap: bGap } = layout;
+    // Row 1 (attacks)
+    let r1Y = H - bH - 6 - (row2.length > 0 ? bH + 6 : 0);
+    let r1Total = row1.length * (bW + bGap) - bGap;
+    let r1X = (W - r1Total) / 2;
+    for (let bi = 0; bi < row1.length; bi++) {
+        let bx = r1X + bi * (bW + bGap);
+        let isSpec = row1[bi].k === 'Q';
+        let canSpec = isSpec && playerXp >= MAX_XP;
+        let bg = isSpec ? (canSpec ? 'rgba(255,200,0,0.35)' : 'rgba(60,50,0,0.3)') : 'rgba(180,0,0,0.35)';
+        let border = isSpec ? (canSpec ? '#ffcc00' : '#554400') : '#cc3333';
+        let txt = isSpec ? (canSpec ? '#ffee44' : '#776633') : '#ffffff';
+        drawUIButton(bx, r1Y, bW, bH, row1[bi].l, bg, border, txt);
+    }
+    // Row 2 (block, drink) — only for non-bag fights
+    if (row2.length > 0) {
+        let r2Y = H - bH - 6;
+        let r2Total = row2.length * (bW + bGap) - bGap;
+        let r2X = (W - r2Total) / 2;
+        for (let bi = 0; bi < row2.length; bi++) {
+            let bx = r2X + bi * (bW + bGap);
+            let isBlock = row2[bi].k === ' ';
+            let bg = isBlock ? (combat.blocking ? 'rgba(100,140,255,0.4)' : 'rgba(40,60,120,0.3)') : 'rgba(30,100,30,0.35)';
+            let border = isBlock ? '#6688ff' : '#44cc44';
+            let txt = '#ffffff';
+            drawUIButton(bx, r2Y, bW, bH, row2[bi].l, bg, border, txt);
+        }
+    }
+    // Dodge zone indicators (side panels)
+    ctx.globalAlpha = 0.25;
+    // Left dodge zone
+    ctx.fillStyle = '#ff8800';
+    ctx.fillRect(0, H * 0.2, W * 0.08, H * 0.45);
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('\u25C0', W * 0.04, H * 0.42);
+    ctx.font = '9px Courier New'; ctx.fillText('DODGE', W * 0.04, H * 0.48);
+    // Right dodge zone
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = '#ff8800';
+    ctx.fillRect(W * 0.92, H * 0.2, W * 0.08, H * 0.45);
+    ctx.globalAlpha = 0.7;
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px Courier New';
+    ctx.fillText('\u25B6', W * 0.96, H * 0.42);
+    ctx.font = '9px Courier New'; ctx.fillText('DODGE', W * 0.96, H * 0.48);
+    ctx.globalAlpha = 1;
+    ctx.textBaseline = 'alphabetic';
+}
+
+// ─── UI Button Helper ────────────────────────────────────────────────
+function drawUIButton(x, y, w, h, label, bgColor, borderColor, textColor) {
+    // Background with rounded look
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = borderColor; ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    // Highlight top edge
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(x + 1, y + 1, w - 2, h * 0.35);
+    // Label
+    ctx.fillStyle = textColor; ctx.font = 'bold 14px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + w / 2, y + h / 2);
 }
 
 // ─── Draw Opponent ───────────────────────────────────────────────────
@@ -1520,8 +1795,8 @@ function renderCutscene() {
     ctx.fillText(combat.cutsceneTyped, bx2 + 16, by2 + 16);
     if (combat.cutsceneCharIdx >= (combat.cutsceneLines[combat.cutsceneIdx] || '').length) {
         if (Math.floor(Date.now() / 400) % 2) {
-            ctx.fillStyle = '#cc0000'; ctx.font = '14px Courier New'; ctx.textAlign = 'right';
-            ctx.fillText('[ENTER / SPACE]', bx2 + bww - 12, by2 + bhh - 22);
+            ctx.fillStyle = '#ffffff'; ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'right';
+            ctx.fillText('[CLICK / ENTER / SPACE]', bx2 + bww - 12, by2 + bhh - 22);
         }
     }
     ctx.textBaseline = 'alphabetic';
@@ -1566,23 +1841,31 @@ function renderMenu() {
     let y = H * 0.46;
     for (let i = 0; i < MENU_OPTIONS.length; i++) {
         let sel = i === menuCursor;
-        ctx.fillStyle = sel ? '#ff0000' : '#661111';
+        // Hoverable button look
+        let bw = 220, bh = 38;
+        let bx = W / 2 - bw / 2, by = y - bh / 2;
+        if (sel) {
+            ctx.fillStyle = 'rgba(255,0,0,0.15)';
+            ctx.fillRect(bx, by, bw, bh);
+            ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 2;
+            ctx.strokeRect(bx, by, bw, bh);
+        }
+        ctx.fillStyle = sel ? '#ffffff' : '#884444';
         ctx.font = (sel ? 'bold ' : '') + '28px Courier New';
-        let prefix = sel ? '\u25B8 ' : '  ';
-        ctx.fillText(prefix + MENU_OPTIONS[i], W / 2, y);
+        ctx.fillText(MENU_OPTIONS[i], W / 2, y);
         if (sel) {
             ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 12;
-            ctx.fillText(prefix + MENU_OPTIONS[i], W / 2, y);
+            ctx.fillText(MENU_OPTIONS[i], W / 2, y);
             ctx.shadowBlur = 0;
         }
         y += 42;
     }
-    ctx.fillStyle = '#ffcc00'; ctx.font = '14px Courier New';
+    ctx.fillStyle = '#ffcc00'; ctx.font = '16px Courier New';
     ctx.fillText('Coins: ' + saveData.coins, W / 2, H * 0.82);
-    ctx.fillStyle = '#888888';
+    ctx.fillStyle = '#aaaaaa';
     ctx.fillText('High Score: ' + saveData.highScore, W / 2, H * 0.88);
-    ctx.fillStyle = '#553333'; ctx.font = '12px Courier New';
-    if (Math.floor(Date.now() / 600) % 2) ctx.fillText('Arrow Keys / WASD to navigate \u2022 ENTER to select', W / 2, H * 0.94);
+    ctx.fillStyle = '#ffffff'; ctx.font = '13px Courier New';
+    if (Math.floor(Date.now() / 600) % 2) ctx.fillText('WASD / Arrows to navigate \u2022 ENTER or CLICK to select', W / 2, H * 0.94);
     ctx.textBaseline = 'alphabetic';
 }
 
@@ -1603,7 +1886,7 @@ function renderShop() {
     ctx.fillText('[ SKINS ]', W * 0.2, 70);
     ctx.fillStyle = shopTab === 1 ? '#ff0000' : '#553333';
     ctx.fillText('[ GLOVES ]', W * 0.2, 92);
-    ctx.fillStyle = '#664444'; ctx.font = '11px Courier New';
+    ctx.fillStyle = '#ffffff'; ctx.font = '12px Courier New';
     ctx.fillText('TAB / \u2190\u2192 to switch', W * 0.2, 112);
     let items = shopTab === 0 ? SKINS : GLOVES_SHOP;
     let ownedList = shopTab === 0 ? saveData.ownedSkins : saveData.ownedGloves;
@@ -1659,9 +1942,9 @@ function renderShop() {
         ctx.fillText('Dmg: ' + skinItem.special.dmg[0] + '-' + skinItem.special.dmg[1], W * 0.72, H - 45);
     }
 
-    ctx.fillStyle = '#884444'; ctx.font = '12px Courier New';
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 13px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText('ENTER = Buy/Equip  |  ESC = Back', W / 2, H - 18);
+    ctx.fillText('CLICK or ENTER = Buy/Equip  |  ESC = Back', W / 2, H - 18);
     ctx.textBaseline = 'alphabetic';
     renderNotifications();
 }
@@ -1732,9 +2015,9 @@ function renderSettings() {
         }
         y += 48;
     }
-    ctx.fillStyle = '#553333'; ctx.font = '12px Courier New';
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 13px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText('\u2190\u2192 to change  |  ESC = ' + (settingsPrevState !== null ? 'Resume' : 'Back'), W / 2, H - 20);
+    ctx.fillText('CLICK / \u2190\u2192 to change  |  ESC = ' + (settingsPrevState !== null ? 'Resume' : 'Back'), W / 2, H - 20);
     ctx.textBaseline = 'alphabetic';
 }
 
@@ -1751,8 +2034,8 @@ function renderGameOver() {
     ctx.fillStyle = '#888888'; ctx.font = '16px Courier New';
     ctx.fillText('Reached Floor ' + LEVELS[currentLevel].floor + ': ' + LEVELS[currentLevel].name, W / 2, H * 0.65);
     if (Math.floor(Date.now() / 500) % 2) {
-        ctx.fillStyle = '#ff0000'; ctx.font = '20px Courier New';
-        ctx.fillText('[ PRESS ENTER ]', W / 2, H * 0.82);
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px Courier New';
+        ctx.fillText('[ CLICK or PRESS ENTER ]', W / 2, H * 0.82);
     }
     ctx.textBaseline = 'alphabetic';
 }
@@ -1779,8 +2062,8 @@ function renderWin() {
     ctx.fillText('Coins: ' + saveData.coins, W / 2, H * 0.64);
     if (drunkLevel >= 2) { ctx.fillStyle = '#ffaa00'; ctx.fillText('...and you did it drunk. Legend.', W / 2, H * 0.72); }
     if (Math.floor(Date.now() / 500) % 2) {
-        ctx.fillStyle = '#ff0000'; ctx.font = '20px Courier New';
-        ctx.fillText('[ PRESS ENTER ]', W / 2, H * 0.88);
+        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px Courier New';
+        ctx.fillText('[ CLICK or PRESS ENTER ]', W / 2, H * 0.88);
     }
     ctx.textBaseline = 'alphabetic';
 }
