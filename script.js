@@ -715,15 +715,26 @@ function handleCanvasClick(x, y, button) {
             break;
         }
         case ST.EXPLORE: {
+            // Stats button toggle (top-left)
+            if (x >= 10 && x <= 90 && y >= 10 && y <= 38) {
+                statsOpen = !statsOpen;
+                SFX.menuMove();
+                return;
+            }
             // Click stair prompt area
             if (stairPrompt && y >= H / 2 + 30 && y <= H / 2 + 68) {
                 useStairs();
                 return;
             }
-            // Click drink button (bottom-left, matches explore HUD drink button)
-            if (x >= 4 && x <= 142 && y >= H - 100 && y <= H - 52) {
-                drinkBottle();
-                return;
+            // Click drink button inside stats panel (when open)
+            if (statsOpen) {
+                let alive = enemies.filter(e => e.alive && !e.isBag).length;
+                let bags = enemies.filter(e => e.alive && e.isBag).length;
+                let drBtnY = 44 + 18 + 18 + 18 + (bags > 0 ? 18 : 0) - 2;
+                if (x >= 16 && x <= 184 && y >= drBtnY && y <= drBtnY + 22) {
+                    drinkBottle();
+                    return;
+                }
             }
             break;
         }
@@ -1258,27 +1269,54 @@ function drawXPBar(x, y, w, h) {
 }
 
 // ─── Explore HUD ─────────────────────────────────────────────────────
+let statsOpen = false;
 function renderExploreHUD() {
+    // Health bar at bottom-left (always visible)
     drawBar(10, H - 30, 200, 18, player.health, player.maxHealth, 'HP');
-    ctx.fillStyle = '#ff0000'; ctx.font = '14px Courier New'; ctx.textAlign = 'left';
-    ctx.fillText('Score: ' + player.score, 10, H - 40);
-    let alive = enemies.filter(e => e.alive && !e.isBag).length;
-    let bags = enemies.filter(e => e.alive && e.isBag).length;
-    ctx.fillText('Fighters: ' + alive, 10, H - 56);
-    if (bags > 0) { ctx.fillStyle = '#cc8800'; ctx.fillText('Bags: ' + bags, 10, H - 72); }
-    // Clickable drink button
-    let drinkY = bags > 0 ? H - 92 : H - 76;
-    ctx.fillStyle = 'rgba(0,80,0,0.3)'; ctx.fillRect(8, drinkY - 4, 130, 24);
-    ctx.strokeStyle = '#44ff44'; ctx.lineWidth = 1; ctx.strokeRect(8, drinkY - 4, 130, 24);
-    ctx.fillStyle = '#44ff44'; ctx.fillText('Bottles: ' + inventory.bottles, 14, drinkY + 12);
-    ctx.fillStyle = '#ffcc00'; ctx.fillText('Coins: ' + saveData.coins, 10, bags > 0 ? H - 104 : H - 88);
-    if (drunkLevel === 1) { ctx.fillStyle = '#ffaa00'; ctx.fillText('TIPSY', 10, bags > 0 ? H - 120 : H - 104); }
-    else if (drunkLevel >= 2) { ctx.fillStyle = '#ff4400'; ctx.fillText('DRUNK', 10, bags > 0 ? H - 120 : H - 104); }
+
+    // Floor title at top-center
     let lvl = LEVELS[currentLevel];
     ctx.fillStyle = '#ff4444'; ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
     ctx.fillText('FLOOR ' + lvl.floor + ': ' + lvl.name, W / 2, 20);
+
+    // ─── Stats toggle button (top-left) ───
+    let sbW = 80, sbH = 28, sbX = 10, sbY = 10;
+    ctx.fillStyle = statsOpen ? 'rgba(180,0,0,0.5)' : 'rgba(80,0,0,0.45)';
+    ctx.fillRect(sbX, sbY, sbW, sbH);
+    ctx.strokeStyle = statsOpen ? '#ff4444' : '#aa3333'; ctx.lineWidth = 2;
+    ctx.strokeRect(sbX, sbY, sbW, sbH);
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 13px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('STATS', sbX + sbW / 2, sbY + sbH / 2);
+    ctx.textBaseline = 'alphabetic';
+
+    // ─── Stats panel (shown when open) ───
+    if (statsOpen) {
+        let px = 10, py = 44, pw = 180, ph = 150;
+        let alive = enemies.filter(e => e.alive && !e.isBag).length;
+        let bags = enemies.filter(e => e.alive && e.isBag).length;
+        ctx.fillStyle = 'rgba(0,0,0,0.75)';
+        ctx.fillRect(px, py, pw, ph);
+        ctx.strokeStyle = '#882222'; ctx.lineWidth = 1;
+        ctx.strokeRect(px, py, pw, ph);
+        ctx.textAlign = 'left'; ctx.font = '13px Courier New';
+        let ly = py + 18;
+        ctx.fillStyle = '#ff4444'; ctx.fillText('Score: ' + player.score, px + 8, ly); ly += 18;
+        ctx.fillStyle = '#ff4444'; ctx.fillText('Fighters: ' + alive, px + 8, ly); ly += 18;
+        if (bags > 0) { ctx.fillStyle = '#cc8800'; ctx.fillText('Bags: ' + bags, px + 8, ly); ly += 18; }
+        ctx.fillStyle = '#ffcc00'; ctx.fillText('Coins: ' + saveData.coins, px + 8, ly); ly += 18;
+        // Drink button inside panel
+        let drBtnY = ly - 2;
+        ctx.fillStyle = 'rgba(0,80,0,0.35)'; ctx.fillRect(px + 6, drBtnY, pw - 12, 22);
+        ctx.strokeStyle = '#44ff44'; ctx.lineWidth = 1; ctx.strokeRect(px + 6, drBtnY, pw - 12, 22);
+        ctx.fillStyle = '#44ff44'; ctx.fillText('Bottles: ' + inventory.bottles + '  [SHIFT]', px + 12, drBtnY + 15);
+        ly += 24;
+        if (drunkLevel === 1) { ctx.fillStyle = '#ffaa00'; ctx.fillText('Status: TIPSY', px + 8, ly); }
+        else if (drunkLevel >= 2) { ctx.fillStyle = '#ff4400'; ctx.fillText('Status: DRUNK', px + 8, ly); }
+    }
+
+    // Stair prompt
     if (stairPrompt) {
-        // Clickable stair button
         let stTxt = stairPrompt === 'up' ? 'GO UPSTAIRS [E]' : 'GO DOWNSTAIRS [E]';
         let stBW = 240, stBH = 36;
         let stBX = W / 2 - stBW / 2, stBY = H / 2 + 32;
