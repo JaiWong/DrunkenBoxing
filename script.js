@@ -8,6 +8,69 @@ const ctx = canvas.getContext('2d');
 const W = 800, H = 500;
 canvas.width = W; canvas.height = H;
 
+// ─── Sound Effects (Web Audio API) ───────────────────────────────────
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let audioCtx = null;
+function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); return audioCtx; }
+
+function playTone(freq, duration, type, vol, ramp) {
+    let ctx = ensureAudio();
+    let osc = ctx.createOscillator();
+    let gain = ctx.createGain();
+    osc.type = type || 'square';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (ramp) osc.frequency.exponentialRampToValueAtTime(ramp, ctx.currentTime + duration);
+    gain.gain.setValueAtTime(vol || 0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + duration);
+}
+
+function playNoise(duration, vol) {
+    let ctx = ensureAudio();
+    let bufSize = ctx.sampleRate * duration;
+    let buf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+    let data = buf.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1);
+    let src = ctx.createBufferSource(); src.buffer = buf;
+    let gain = ctx.createGain();
+    gain.gain.setValueAtTime(vol || 0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    src.connect(gain); gain.connect(ctx.destination);
+    src.start(); src.stop(ctx.currentTime + duration);
+}
+
+const SFX = {
+    menuMove()    { playTone(600, 0.06, 'square', 0.08); },
+    menuSelect()  { playTone(800, 0.08, 'square', 0.12); playTone(1200, 0.1, 'square', 0.1); },
+    menuBack()    { playTone(400, 0.1, 'square', 0.1, 200); },
+    jab()         { playNoise(0.08, 0.18); playTone(300, 0.06, 'sawtooth', 0.1); },
+    cross()       { playNoise(0.1, 0.22); playTone(250, 0.08, 'sawtooth', 0.12); },
+    hook()        { playNoise(0.14, 0.25); playTone(200, 0.12, 'sawtooth', 0.15, 100); },
+    uppercut()    { playNoise(0.12, 0.2); playTone(350, 0.15, 'sawtooth', 0.15, 600); },
+    special()     { playTone(200, 0.4, 'sawtooth', 0.2, 800); playNoise(0.3, 0.15); playTone(600, 0.3, 'square', 0.1, 1200); },
+    block()       { playTone(150, 0.1, 'triangle', 0.12); playNoise(0.06, 0.08); },
+    dodge()       { playTone(500, 0.12, 'sine', 0.08, 300); },
+    miss()        { playTone(250, 0.15, 'sine', 0.06, 100); },
+    playerHit()   { playNoise(0.15, 0.2); playTone(180, 0.15, 'sawtooth', 0.12, 80); },
+    enemyHit()    { playNoise(0.1, 0.15); playTone(250, 0.08, 'square', 0.08); },
+    ko()          { playTone(400, 0.3, 'sawtooth', 0.2, 80); playNoise(0.4, 0.15); setTimeout(() => playTone(200, 0.5, 'square', 0.12, 50), 200); },
+    bottlePickup(){ playTone(800, 0.08, 'sine', 0.1); setTimeout(() => playTone(1200, 0.1, 'sine', 0.1), 80); },
+    drink()       { playNoise(0.2, 0.08); playTone(300, 0.25, 'sine', 0.06, 500); },
+    stairs()      { playTone(400, 0.1, 'sine', 0.1); setTimeout(() => playTone(500, 0.1, 'sine', 0.1), 100); setTimeout(() => playTone(600, 0.15, 'sine', 0.1), 200); },
+    coinGain()    { playTone(1000, 0.08, 'square', 0.08); setTimeout(() => playTone(1500, 0.12, 'square', 0.08), 80); },
+    shopBuy()     { playTone(600, 0.08, 'sine', 0.1); setTimeout(() => playTone(800, 0.08, 'sine', 0.1), 60); setTimeout(() => playTone(1100, 0.15, 'sine', 0.12), 120); },
+    shopEquip()   { playTone(700, 0.1, 'triangle', 0.1); setTimeout(() => playTone(900, 0.1, 'triangle', 0.1), 80); },
+    shopFail()    { playTone(200, 0.15, 'square', 0.1); setTimeout(() => playTone(150, 0.2, 'square', 0.1), 120); },
+    gameOver()    { playTone(400, 0.3, 'sawtooth', 0.15, 100); setTimeout(() => playTone(300, 0.3, 'sawtooth', 0.12, 80), 300); setTimeout(() => playTone(200, 0.5, 'sawtooth', 0.1, 50), 600); },
+    win()         { playTone(600, 0.15, 'square', 0.12); setTimeout(() => playTone(800, 0.15, 'square', 0.12), 150); setTimeout(() => playTone(1000, 0.15, 'square', 0.12), 300); setTimeout(() => playTone(1200, 0.3, 'square', 0.15), 450); },
+    fightIntro()  { playTone(300, 0.15, 'sawtooth', 0.15, 600); playNoise(0.1, 0.1); },
+    cutsceneType(){ playTone(800 + Math.random() * 400, 0.03, 'square', 0.04); },
+    cutsceneNext(){ playTone(500, 0.08, 'triangle', 0.08); },
+    bagHit()      { playNoise(0.12, 0.12); playTone(120, 0.1, 'triangle', 0.08); },
+    settingChange(){ playTone(700, 0.05, 'triangle', 0.07); },
+};
+
 // ─── Constants ───────────────────────────────────────────────────────
 const FOV = Math.PI / 3;
 const COMBO_WINDOW = 280;
@@ -430,9 +493,9 @@ document.addEventListener('keydown', e => {
 
     switch (state) {
         case ST.MENU:
-            if (k === 'arrowup' || k === 'w') menuCursor = (menuCursor - 1 + MENU_OPTIONS.length) % MENU_OPTIONS.length;
-            if (k === 'arrowdown' || k === 's') menuCursor = (menuCursor + 1) % MENU_OPTIONS.length;
-            if (e.key === 'Enter') selectMenuOption();
+            if (k === 'arrowup' || k === 'w') { menuCursor = (menuCursor - 1 + MENU_OPTIONS.length) % MENU_OPTIONS.length; SFX.menuMove(); }
+            if (k === 'arrowdown' || k === 's') { menuCursor = (menuCursor + 1) % MENU_OPTIONS.length; SFX.menuMove(); }
+            if (e.key === 'Enter') { SFX.menuSelect(); selectMenuOption(); }
             break;
         case ST.SHOP:
             handleShopInput(e);
@@ -443,19 +506,19 @@ document.addEventListener('keydown', e => {
         case ST.EXPLORE:
             if (k === 'e') useStairs();
             if (e.key === 'Shift') drinkBottle();
-            if (e.key === 'Escape') { settingsPrevState = ST.EXPLORE; state = ST.SETTINGS; settingsCursor = 0; }
+            if (e.key === 'Escape') { SFX.menuBack(); settingsPrevState = ST.EXPLORE; state = ST.SETTINGS; settingsCursor = 0; }
             break;
         case ST.COMBAT:
-            handleCombatKey(e.key);
+            handleCombatKey(e.key, k);
             if (e.key === 'Shift') drinkBottle();
-            if (e.key === 'Escape') { settingsPrevState = ST.COMBAT; state = ST.SETTINGS; settingsCursor = 0; }
+            if (e.key === 'Escape') { SFX.menuBack(); settingsPrevState = ST.COMBAT; state = ST.SETTINGS; settingsCursor = 0; }
             break;
         case ST.CUTSCENE:
-            if (e.key === 'Enter' || e.key === ' ') advanceCutscene();
+            if (e.key === 'Enter' || e.key === ' ') { SFX.cutsceneNext(); advanceCutscene(); }
             break;
         case ST.GAMEOVER:
         case ST.WIN:
-            if (e.key === 'Enter') { state = ST.MENU; menuCursor = 0; }
+            if (e.key === 'Enter') { SFX.menuSelect(); state = ST.MENU; menuCursor = 0; }
             break;
     }
 });
@@ -473,15 +536,16 @@ function selectMenuOption() {
 function handleShopInput(e) {
     let k = e.key.toLowerCase();
     let items = shopTab === 0 ? SKINS : GLOVES_SHOP;
-    if (k === 'arrowup' || k === 'w') shopCursor = (shopCursor - 1 + items.length) % items.length;
-    if (k === 'arrowdown' || k === 's') shopCursor = (shopCursor + 1) % items.length;
+    if (k === 'arrowup' || k === 'w') { shopCursor = (shopCursor - 1 + items.length) % items.length; SFX.menuMove(); }
+    if (k === 'arrowdown' || k === 's') { shopCursor = (shopCursor + 1) % items.length; SFX.menuMove(); }
     if (k === 'arrowleft' || k === 'arrowright' || k === 'tab') {
         e.preventDefault();
         shopTab = 1 - shopTab;
         shopCursor = 0;
+        SFX.menuMove();
     }
     if (e.key === 'Enter') shopAction();
-    if (e.key === 'Escape' || e.key === 'Backspace') { state = ST.MENU; menuCursor = 0; }
+    if (e.key === 'Escape' || e.key === 'Backspace') { SFX.menuBack(); state = ST.MENU; menuCursor = 0; }
 }
 
 function shopAction() {
@@ -490,26 +554,32 @@ function shopAction() {
         if (saveData.ownedSkins.includes(item.id)) {
             saveData.equippedSkin = item.id;
             addNotif('Equipped: ' + item.name, 1500);
+            SFX.shopEquip();
         } else if (saveData.coins >= item.price) {
             saveData.coins -= item.price;
             saveData.ownedSkins.push(item.id);
             saveData.equippedSkin = item.id;
             addNotif('Purchased & Equipped: ' + item.name, 2000);
+            SFX.shopBuy();
         } else {
             addNotif('Not enough coins!', 1500);
+            SFX.shopFail();
         }
     } else {
         let item = GLOVES_SHOP[shopCursor];
         if (saveData.ownedGloves.includes(item.id)) {
             saveData.equippedGloves = item.id;
             addNotif('Equipped: ' + item.name, 1500);
+            SFX.shopEquip();
         } else if (saveData.coins >= item.price) {
             saveData.coins -= item.price;
             saveData.ownedGloves.push(item.id);
             saveData.equippedGloves = item.id;
             addNotif('Purchased & Equipped: ' + item.name, 2000);
+            SFX.shopBuy();
         } else {
             addNotif('Not enough coins!', 1500);
+            SFX.shopFail();
         }
     }
     writeSave();
@@ -518,22 +588,22 @@ function shopAction() {
 // ─── Settings Input ──────────────────────────────────────────────────
 function handleSettingsInput(e) {
     let k = e.key.toLowerCase();
-    if (k === 'arrowup' || k === 'w') settingsCursor = (settingsCursor - 1 + SETTINGS_OPTS.length) % SETTINGS_OPTS.length;
-    if (k === 'arrowdown' || k === 's') settingsCursor = (settingsCursor + 1) % SETTINGS_OPTS.length;
+    if (k === 'arrowup' || k === 'w') { settingsCursor = (settingsCursor - 1 + SETTINGS_OPTS.length) % SETTINGS_OPTS.length; SFX.menuMove(); }
+    if (k === 'arrowdown' || k === 's') { settingsCursor = (settingsCursor + 1) % SETTINGS_OPTS.length; SFX.menuMove(); }
     if (k === 'arrowleft' || k === 'arrowright' || e.key === 'Enter') {
         let dir = k === 'arrowleft' ? -1 : 1;
         switch (settingsCursor) {
-            case 0: settings.difficulty = Math.max(0, Math.min(2, settings.difficulty + dir)); break;
-            case 1: settings.sensitivity = Math.round(Math.max(0.3, Math.min(3.0, settings.sensitivity + dir * 0.1)) * 10) / 10; break;
-            case 2: settings.speed = Math.round(Math.max(0.3, Math.min(3.0, settings.speed + dir * 0.1)) * 10) / 10; break;
-            case 3: settings.screenShake = !settings.screenShake; break;
-            case 4: settings.showMinimap = !settings.showMinimap; break;
+            case 0: settings.difficulty = Math.max(0, Math.min(2, settings.difficulty + dir)); SFX.settingChange(); break;
+            case 1: settings.sensitivity = Math.round(Math.max(0.3, Math.min(3.0, settings.sensitivity + dir * 0.1)) * 10) / 10; SFX.settingChange(); break;
+            case 2: settings.speed = Math.round(Math.max(0.3, Math.min(3.0, settings.speed + dir * 0.1)) * 10) / 10; SFX.settingChange(); break;
+            case 3: settings.screenShake = !settings.screenShake; SFX.settingChange(); break;
+            case 4: settings.showMinimap = !settings.showMinimap; SFX.settingChange(); break;
             case 5:
-                if (e.key === 'Enter') exitSettings();
+                if (e.key === 'Enter') { SFX.menuSelect(); exitSettings(); }
                 break;
         }
     }
-    if (e.key === 'Escape' || e.key === 'Backspace') exitSettings();
+    if (e.key === 'Escape' || e.key === 'Backspace') { SFX.menuBack(); exitSettings(); }
 }
 
 function exitSettings() {
@@ -552,29 +622,30 @@ function drinkBottle() {
     inventory.bottles--;
     drinkCount++;
     player.health = player.maxHealth;
+    SFX.drink();
     if (drinkCount === 1) { drunkLevel = 1; drunkNotify = 'TIPSY'; drunkNotifyTimer = 2500; drunkBlurAmount = 2; }
     else if (drinkCount >= 2) { drunkLevel = 2; drunkNotify = 'DRUNK'; drunkNotifyTimer = 3500; drunkBlurAmount = 5; }
 }
 
 // ─── Combat Key Handling ─────────────────────────────────────────────
-function handleCombatKey(key) {
-    // Dodge / Slip
-    if ((key === 'a' || key === 'A') && combat.dodgeCooldown <= 0 && !combat.dodging) {
+function handleCombatKey(key, kLower) {
+    // Dodge / Slip — also support arrow keys
+    if ((key === 'a' || key === 'A' || kLower === 'arrowleft') && combat.dodgeCooldown <= 0 && !combat.dodging) {
         combat.dodging = true; combat.dodgeDir = -1;
         combat.dodgeTimer = DODGE_DURATION; combat.dodgeCooldown = DODGE_COOLDOWN;
         combat.lastSlipDir = -1;
-        combat.msg = 'SLIP LEFT!'; combat.msgTimer = 300; return;
+        combat.msg = 'SLIP LEFT!'; combat.msgTimer = 300; SFX.dodge(); return;
     }
-    if ((key === 'd' || key === 'D') && combat.dodgeCooldown <= 0 && !combat.dodging) {
+    if ((key === 'd' || key === 'D' || kLower === 'arrowright') && combat.dodgeCooldown <= 0 && !combat.dodging) {
         combat.dodging = true; combat.dodgeDir = 1;
         combat.dodgeTimer = DODGE_DURATION; combat.dodgeCooldown = DODGE_COOLDOWN;
         combat.lastSlipDir = 1;
-        combat.msg = 'SLIP RIGHT!'; combat.msgTimer = 300; return;
+        combat.msg = 'SLIP RIGHT!'; combat.msgTimer = 300; SFX.dodge(); return;
     }
-    if ((key === 's' || key === 'S') && combat.dodgeCooldown <= 0 && !combat.dodging) {
+    if ((key === 's' || key === 'S' || kLower === 'arrowdown') && combat.dodgeCooldown <= 0 && !combat.dodging) {
         combat.dodging = true; combat.dodgeDir = 0;
         combat.dodgeTimer = SLIP_BACK_DURATION; combat.dodgeCooldown = DODGE_COOLDOWN;
-        combat.msg = 'SLIP BACK!'; combat.msgTimer = 300; return;
+        combat.msg = 'SLIP BACK!'; combat.msgTimer = 300; SFX.dodge(); return;
     }
     if (combat.cooldown > 0 || combat.attacking) return;
 
@@ -636,6 +707,7 @@ function getNearbyStair() {
 function useStairs() {
     let dir = getNearbyStair();
     if (!dir) return;
+    SFX.stairs();
     if (dir === 'up' && currentLevel < LEVELS.length - 1) {
         let next = currentLevel + 1;
         startTransition('FLOOR ' + LEVELS[next].floor + ': ' + LEVELS[next].name, () => loadLevel(next, 'up'));
@@ -1403,6 +1475,7 @@ function updateCutscene(dt) {
         while (combat.cutsceneDelay >= 35 && combat.cutsceneCharIdx < line.length) {
             combat.cutsceneDelay -= 35; combat.cutsceneCharIdx++;
             combat.cutsceneTyped = line.substring(0, combat.cutsceneCharIdx);
+            SFX.cutsceneType();
         }
     }
 }
@@ -1795,10 +1868,10 @@ function updateExplore(dt) {
     let moveSpeed = PLAYER_SPEED * settings.speed;
     let turnSpeed = TURN_SPEED * settings.sensitivity;
     let moveX = 0, moveY = 0;
-    if (keys['w']) { moveX += Math.cos(player.angle) * moveSpeed * dt; moveY += Math.sin(player.angle) * moveSpeed * dt; }
-    if (keys['s'] && state === ST.EXPLORE) { moveX -= Math.cos(player.angle) * moveSpeed * dt; moveY -= Math.sin(player.angle) * moveSpeed * dt; }
-    if (keys['a'] && state === ST.EXPLORE) player.angle -= turnSpeed * dt;
-    if (keys['d'] && state === ST.EXPLORE) player.angle += turnSpeed * dt;
+    if (keys['w'] || keys['arrowup']) { moveX += Math.cos(player.angle) * moveSpeed * dt; moveY += Math.sin(player.angle) * moveSpeed * dt; }
+    if ((keys['s'] || keys['arrowdown']) && state === ST.EXPLORE) { moveX -= Math.cos(player.angle) * moveSpeed * dt; moveY -= Math.sin(player.angle) * moveSpeed * dt; }
+    if ((keys['a'] || keys['arrowleft']) && state === ST.EXPLORE) player.angle -= turnSpeed * dt;
+    if ((keys['d'] || keys['arrowright']) && state === ST.EXPLORE) player.angle += turnSpeed * dt;
 
     if (drunkLevel >= 2) player.angle += Math.sin(Date.now() * 0.001) * 0.0008 * dt;
     player.angle = ((player.angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
@@ -1808,7 +1881,7 @@ function updateExplore(dt) {
     if (currentMap[Math.floor(player.y)][Math.floor(nx + (moveX > 0 ? buf : -buf))] === 0) player.x = nx;
     if (currentMap[Math.floor(ny + (moveY > 0 ? buf : -buf))][Math.floor(player.x)] === 0) player.y = ny;
 
-    if (keys['w'] || keys['s']) armBob += dt * 0.008;
+    if (keys['w'] || keys['s'] || keys['arrowup'] || keys['arrowdown']) armBob += dt * 0.008;
 
     // Bottle pickup
     for (let b of bottles) {
@@ -1818,6 +1891,7 @@ function updateExplore(dt) {
             pickedBottles.add(b.key);
             inventory.bottles++;
             addNotif('+1 BOTTLE', 1200);
+            SFX.bottlePickup();
         }
     }
 
@@ -1852,6 +1926,7 @@ function startCombat(enemy) {
         // Skip cutscene for bags, short intro
         combat.introTimer = 600;
         state = ST.FIGHT_INTRO;
+        SFX.fightIntro();
     } else {
         startCutscene(enemy, false);
     }
@@ -1901,7 +1976,7 @@ function updateCombat(dt) {
                 let dmg = special.dmg[0] + Math.random() * (special.dmg[1] - special.dmg[0]);
                 if (drunkLevel >= 2 && Math.random() < 0.1) {
                     combat.msg = 'MISSED! (drunk)'; combat.msgTimer = 500;
-                    combat.attacking = false; combat.cooldown = 800; return;
+                    combat.attacking = false; combat.cooldown = 800; SFX.miss(); return;
                 }
                 en.health -= dmg;
                 playerXp = 0; // XP consumed
@@ -1909,6 +1984,7 @@ function updateCombat(dt) {
                 combat.shake = 22;
                 combat.msg = special.name + '!'; combat.msgTimer = 800;
                 combat.attacking = false; combat.cooldown = 800;
+                SFX.special();
                 spawnParticles(W / 2, H * 0.35, 25, special.particleColor);
                 spawnParticles(W / 2 - 50, H * 0.4, 10, special.particleColor);
                 spawnParticles(W / 2 + 50, H * 0.4, 10, special.particleColor);
@@ -1918,7 +1994,7 @@ function updateCombat(dt) {
                 let dmg = a.dmg[0] + Math.random() * (a.dmg[1] - a.dmg[0]);
                 if (drunkLevel >= 2 && Math.random() < 0.15) {
                     combat.msg = 'MISSED! (drunk)'; combat.msgTimer = 500;
-                    combat.attacking = false; combat.cooldown = a.cd; return;
+                    combat.attacking = false; combat.cooldown = a.cd; SFX.miss(); return;
                 }
                 en.health -= dmg;
                 // XP gain from dealing damage
@@ -1928,6 +2004,12 @@ function updateCombat(dt) {
                 combat.shake = a.dmg[1] > 14 ? 14 : 5;
                 combat.msg = a.name; combat.msgTimer = 500;
                 combat.attacking = false; combat.cooldown = a.cd;
+                // Play punch SFX based on attack type
+                if (en.isBag) { SFX.bagHit(); }
+                else if (combat.attackType === 'jab') SFX.jab();
+                else if (combat.attackType === 'cross') SFX.cross();
+                else if (combat.attackType === 'leftHook' || combat.attackType === 'rightHook') SFX.hook();
+                else if (combat.attackType === 'uppercut') SFX.uppercut();
                 spawnParticles(W / 2, H * 0.35, 8, '#ff4444');
             }
 
@@ -1938,6 +2020,7 @@ function updateCombat(dt) {
                     addNotif('BAG DESTROYED! +' + en.coins + ' coins', 1800);
                     saveData.coins += en.coins;
                     writeSave();
+                    SFX.coinGain();
                     state = ST.EXPLORE;
                     return;
                 }
@@ -1948,6 +2031,7 @@ function updateCombat(dt) {
                 if (player.score > saveData.highScore) saveData.highScore = player.score;
                 writeSave();
                 addNotif('+' + en.coins + ' COINS!', 2500);
+                SFX.ko(); SFX.coinGain();
                 combat.koTimer = 2200; state = ST.KO; return;
             }
         }
@@ -1974,6 +2058,7 @@ function updateCombat(dt) {
         if (combat.enemyWindupTimer <= 0) {
             if (combat.dodging) {
                 combat.msg = 'DODGED!'; combat.msgTimer = 400;
+                SFX.dodge();
             } else {
                 let dmg = en.dmg[0] + Math.random() * (en.dmg[1] - en.dmg[0]);
                 dmg *= dm.pDmg;
@@ -1986,9 +2071,11 @@ function updateCombat(dt) {
                     combat.hitFlash = 250; combat.shake = 12;
                     combat.msg = combat.enemyAttackInfo ? combat.enemyAttackInfo.name : 'HIT!';
                     spawnParticles(W / 2, H * 0.8, 6, '#ff0000');
+                    SFX.playerHit();
                 } else {
                     let atkName = combat.enemyAttackInfo ? combat.enemyAttackInfo.name.replace('!', '') : 'HIT';
                     combat.msg = atkName + ' BLOCKED!';
+                    SFX.block();
                 }
             }
             combat.msgTimer = 400;
@@ -2008,6 +2095,7 @@ function updateCombat(dt) {
                 player.health = 0;
                 if (player.score > saveData.highScore) saveData.highScore = player.score;
                 writeSave();
+                SFX.gameOver();
                 state = ST.GAMEOVER;
             }
         }
@@ -2054,7 +2142,7 @@ function loop(time) {
             break;
         case ST.FIGHT_INTRO:
             combat.introTimer -= dt;
-            if (combat.introTimer <= 0) state = ST.COMBAT;
+            if (combat.introTimer <= 0) { state = ST.COMBAT; SFX.fightIntro(); }
             renderFightIntro(); break;
         case ST.COMBAT:
             updateCombat(dt);
@@ -2073,6 +2161,7 @@ function loop(time) {
         case ST.GAMEOVER:
             renderGameOver(); break;
         case ST.WIN:
+            if (!combat._winSfxPlayed) { SFX.win(); combat._winSfxPlayed = true; }
             renderWin(); break;
         case ST.LEVEL_TRANS:
             updateTransition(dt);
