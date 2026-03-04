@@ -155,7 +155,8 @@ function getEnemyAttacks(en) {
 // ─── Game States ─────────────────────────────────────────────────────
 const ST = {
     MENU: 0, EXPLORE: 1, FIGHT_INTRO: 2, COMBAT: 3, KO: 4,
-    GAMEOVER: 5, WIN: 6, CUTSCENE: 7, SETTINGS: 8, SHOP: 9, LEVEL_TRANS: 10
+    GAMEOVER: 5, WIN: 6, CUTSCENE: 7, SETTINGS: 8, SHOP: 9, LEVEL_TRANS: 10,
+    QTE: 11, DIALOGUE: 12, DANCE_BATTLE: 13, AWARDS: 14
 };
 let state = ST.MENU;
 
@@ -193,7 +194,7 @@ const GLOVES_SHOP = [
 
 // ─── Save System ─────────────────────────────────────────────────────
 function defaultSave() {
-    return { coins: 0, ownedSkins: ['default'], ownedGloves: ['red'], equippedSkin: 'default', equippedGloves: 'red', highScore: 0 };
+    return { coins: 0, ownedSkins: ['default'], ownedGloves: ['red'], equippedSkin: 'default', equippedGloves: 'red', highScore: 0, awards: [] };
 }
 let saveData = loadSave();
 function loadSave() {
@@ -456,7 +457,7 @@ let playerXp = 0;
 
 // ─── Menu / Shop / Settings Navigation ───────────────────────────────
 let menuCursor = 0;
-const MENU_OPTIONS = ['FIGHT', 'SHOP', 'SETTINGS'];
+const MENU_OPTIONS = ['FIGHT', 'SHOP', 'AWARDS', 'SETTINGS'];
 let shopTab = 0;
 let shopCursor = 0;
 let settingsCursor = 0;
@@ -471,6 +472,437 @@ let transText = '';
 // ─── Notifications ───────────────────────────────────────────────────
 let notifications = [];
 function addNotif(text, dur) { notifications.push({ text, timer: dur || 2000, max: dur || 2000 }); }
+
+// ─── Awards / Achievements System ───────────────────────────────────
+const AWARDS_LIST = [
+    { id: 'sober_warrior', name: "Why'd You Do That Sober?", desc: "You really just beat up random people without drinking anything huh?", icon: '🥊', condition: 'win_no_drinks' },
+    { id: 'pacifist', name: 'Upstanding Citizen', desc: "Talked your way out of every fight on a floor. Violence isn't always the answer.", icon: '🕊️', condition: 'avoid_fight' },
+    { id: 'smooth_talker', name: 'Smooth Talker', desc: "Avoided a fight through dialogue. Words ARE mightier than fists.", icon: '🗣️', condition: 'talk_out_once' },
+    { id: 'combo_king', name: 'Combo King', desc: "Landed a 10+ hit combo. That poor guy's jaw is in another dimension.", icon: '💥', condition: 'combo_10' },
+    { id: 'dance_king', name: 'Boogie Monster', desc: "Won the dance battle against Red King. You got MOVES.", icon: '🕺', condition: 'win_dance' },
+    { id: 'dance_loser', name: 'Two Left Feet', desc: "Lost the dance battle. Stick to boxing, champ.", icon: '🦶', condition: 'lose_dance' },
+    { id: 'qte_perfect', name: 'Quick Hands', desc: "Hit every circle in a QTE. Your reflexes are inhuman.", icon: '⚡', condition: 'qte_perfect' },
+    { id: 'flawless', name: 'Flawless Victory', desc: "Beat a fighter without taking any damage. Were they even trying?", icon: '✨', condition: 'flawless_win' },
+    { id: 'glass_cannon', name: 'Glass Cannon', desc: "Won a fight with less than 10% health remaining. Living on the edge!", icon: '💀', condition: 'low_hp_win' },
+    { id: 'bar_tab', name: "Runnin' Up The Bar Tab", desc: "Drank 5 or more bottles in a single run. Your liver filed a complaint.", icon: '🍺', condition: 'drink_5' },
+    { id: 'speed_demon', name: 'Speed Demon', desc: "Knocked out an enemy in under 15 seconds. Blink and you miss it.", icon: '⏱️', condition: 'fast_ko' },
+    { id: 'boss_slayer', name: 'King Slayer', desc: "Defeated Red King. The throne is yours now.", icon: '👑', condition: 'beat_boss' },
+    { id: 'first_blood', name: 'First Blood', desc: "Won your very first fight. Everyone starts somewhere.", icon: '🩸', condition: 'first_win' },
+    { id: 'full_clear', name: 'Clean Sweep', desc: "Defeated all 9 fighters in a single run. Nobody was spared.", icon: '🧹', condition: 'beat_all' },
+    { id: 'silver_tongue', name: 'Silver Tongue', desc: "Talked your way out of 3+ fights in one run. You should be a lawyer.", icon: '👅', condition: 'talk_3' },
+];
+let awardsCursor = 0;
+
+function grantAward(id) {
+    if (!saveData.awards) saveData.awards = [];
+    if (!saveData.awards.includes(id)) {
+        saveData.awards.push(id);
+        let aw = AWARDS_LIST.find(a => a.id === id);
+        if (aw) addNotif('🏆 AWARD: ' + aw.name, 3500);
+        writeSave();
+    }
+}
+
+// ─── Dialogue Choice System ─────────────────────────────────────────
+let dialogueState = {
+    enemy: null,
+    lines: [],       // array of { speaker, text } or { choices: [{text, result}] }
+    idx: 0,
+    charIdx: 0,
+    typed: '',
+    delay: 0,
+    choiceCursor: 0,    // cursor for choice selection
+    showChoices: false,
+    avoided: false,   // did player avoid the fight?
+    fightAvoidedThisFloor: 0,
+};
+
+// Each villain gets dialogue options. Some lead to avoiding the fight.
+const DIALOGUE_TREES = {
+    'Street Punk': {
+        lines: [
+            { speaker: 'Street Punk', text: "Hey yo, fresh meat!" },
+            { speaker: 'Street Punk', text: "You don't belong here, kid." },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "I'm just passing through, man. No trouble.", result: 'talk_out', reply: "...Fine. You look broke anyway. Get outta here." },
+                { text: "Bring it on, punk!", result: 'fight', reply: "Hah! Your funeral!" },
+                { text: "*crack knuckles silently*", result: 'fight', reply: "Oh, so it's like that? Let's GO!" },
+            ]},
+        ]
+    },
+    'Lil Ricky': {
+        lines: [
+            { speaker: 'Lil Ricky', text: "Yo, you lost or somethin'?" },
+            { speaker: 'Lil Ricky', text: "These streets belong to ME." },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "My bad, I'll find another way around.", result: 'talk_out', reply: "Smart. Real smart. Now scram before I change my mind." },
+                { text: "I don't see your name on 'em.", result: 'fight', reply: "Oh you got jokes? Let me wipe that smirk off your face!" },
+                { text: "How about you show me around instead?", result: 'talk_out', reply: "...You serious? Heh. You got guts, kid. Alright, go on through." },
+            ]},
+        ]
+    },
+    'Alley Cat': {
+        lines: [
+            { speaker: 'Alley Cat', text: "*hisss* Wrong alley, kid." },
+            { speaker: 'Alley Cat', text: "Fast feet or fast fists?" },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "I respect your territory. I'll back off.", result: 'talk_out', reply: "*narrows eyes* ...You're smarter than most. Go." },
+                { text: "Let's find out!", result: 'fight', reply: "*grins* Wrong answer." },
+                { text: "I brought catnip.", result: 'talk_out', reply: "...Did you just— okay that's actually funny. Get out of here, weirdo." },
+            ]},
+        ]
+    },
+    'Snake Eyes': {
+        lines: [
+            { speaker: 'Snake Eyes', text: "*cracks knuckles*" },
+            { speaker: 'Snake Eyes', text: "Another one thinking they tough..." },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "I heard you're the best counter-fighter. I'm not worthy.", result: 'talk_out', reply: "Flattery? ...Hmph. You're right though. Move along." },
+                { text: "I ain't even warmed up yet either.", result: 'fight', reply: "Then let me WARM YOU UP." },
+                { text: "I bet 50 coins I can beat you... or NOT.", result: 'fight', reply: "Money talks. FISTS talk louder." },
+            ]},
+        ]
+    },
+    'Iron Mike': {
+        lines: [
+            { speaker: 'Iron Mike', text: "You made it this far? Respect." },
+            { speaker: 'Iron Mike', text: "But the Brawler don't lose. Ever." },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "Respect to you too. Can we settle this peacefully?", result: 'talk_out', reply: "...You know what, I like you. Most people just start swinging. Go." },
+                { text: "Say goodnight.", result: 'fight', reply: "That's MY line! Let's do this!" },
+                { text: "I'll buy you a drink after when I'm done.", result: 'fight', reply: "Ha! Bold. Let's see if you can back it up." },
+            ]},
+        ]
+    },
+    'Tank': {
+        lines: [
+            { speaker: 'Tank', text: "*thuds fists together*" },
+            { speaker: 'Tank', text: "Smaller than I expected." },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "Size isn't everything. But I'd rather not prove it today.", result: 'talk_out', reply: "...Heh. You're funny. Alright tiny, get out of my sight." },
+                { text: "The bigger they are...", result: 'fight', reply: "...the HARDER they HIT. Bad choice." },
+                { text: "I have tremendous respect for your physique.", result: 'fight', reply: "Thanks. Now hold still so I can flatten you." },
+            ]},
+        ]
+    },
+    'The Butcher': {
+        lines: [
+            { speaker: 'The Butcher', text: "They call me The Butcher." },
+            { speaker: 'The Butcher', text: "Wanna know why?" },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "Not really! I'm good! Bye!", result: 'talk_out', reply: "...Well that's a first. Get lost before I change my mind!" },
+                { text: "Because of your... cooking skills?", result: 'talk_out', reply: "I— ...actually yes. I went to culinary school. Leave before I dice you." },
+                { text: "Show me why.", result: 'fight', reply: "Because I CARVE UP fools like YOU!" },
+            ]},
+        ]
+    },
+    'Shadow': {
+        lines: [
+            { speaker: 'Shadow', text: "Can't hit what you can't see." },
+            { speaker: 'Shadow', text: "I've been watching you..." },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "That's... kinda creepy. I'm gonna leave.", result: 'talk_out', reply: "...Fair enough. Most people are unsettled. Go." },
+                { text: "Your openings are obvious too.", result: 'fight', reply: "Oh really? Let me SHOW you an opening." },
+                { text: "Watching me? I'm flattered.", result: 'fight', reply: "Don't be. I was studying your weaknesses." },
+            ]},
+        ]
+    },
+    'Red King': {
+        lines: [
+            { speaker: 'Red King', text: "So you're the one causing trouble." },
+            { speaker: 'Red King', text: "I run this whole building." },
+            { speaker: 'Red King', text: "Nobody leaves standing. NOBODY." },
+            { speaker: 'You', text: "..." },
+            { choices: [
+                { text: "Let's settle this like real men... DANCE BATTLE!", result: 'dance', reply: "...DANCE BATTLE?! You know what? I respect the audacity. Let's GROOVE." },
+                { text: "Come. Show me what you got.", result: 'fight', reply: "Gladly. You'll regret those words." },
+                { text: "I've beaten everyone below you. Your turn.", result: 'fight', reply: "Those were PAWNS. I am the KING." },
+            ]},
+        ]
+    },
+};
+
+// ─── QTE (Quick Time Event) System ──────────────────────────────────
+let qte = {
+    active: false,
+    circles: [],
+    timeLimit: 4000,     // ms
+    timer: 0,
+    clicked: 0,
+    total: 0,
+    done: false,
+    resultTimer: 0,
+    damageMult: 1,
+    fadeIn: 0,
+};
+
+function startQTE() {
+    let count = 5 + Math.floor(Math.random() * 4); // 5-8 circles
+    qte.circles = [];
+    for (let i = 0; i < count; i++) {
+        qte.circles.push({
+            x: 80 + Math.random() * (W - 160),
+            y: 60 + Math.random() * (H - 160),
+            r: 28 + Math.random() * 12,
+            hit: false,
+            spawnDelay: i * 250,   // stagger appearance
+            pulse: Math.random() * Math.PI * 2,
+            shrinkTimer: 2000 + Math.random() * 800,  // time before it disappears
+            shrinkMax: 2000 + Math.random() * 800,
+        });
+    }
+    qte.total = count;
+    qte.clicked = 0;
+    qte.timer = 0;
+    qte.timeLimit = 3000 + count * 350;
+    qte.done = false;
+    qte.resultTimer = 0;
+    qte.fadeIn = 0;
+    qte.damageMult = 1;
+    state = ST.QTE;
+    SFX.fightIntro();
+}
+
+function clickQTE(x, y) {
+    if (qte.done) return;
+    for (let c of qte.circles) {
+        if (c.hit) continue;
+        if (c.spawnDelay > qte.timer) continue;
+        let elapsed = qte.timer - c.spawnDelay;
+        if (elapsed > c.shrinkMax) continue; // already gone
+        let dx = x - c.x, dy = y - c.y;
+        if (Math.sqrt(dx * dx + dy * dy) <= c.r + 8) {
+            c.hit = true;
+            qte.clicked++;
+            SFX.jab();
+            spawnParticles(c.x, c.y, 8, '#ffcc00');
+            return;
+        }
+    }
+    // Miss!
+    SFX.miss();
+}
+
+function finishQTE() {
+    qte.done = true;
+    let ratio = qte.clicked / qte.total;
+    qte.damageMult = 0.5 + ratio * 1.5;  // 0.5x (none) to 2.0x (all)
+    if (qte.clicked === qte.total) grantAward('qte_perfect');
+    qte.resultTimer = 1500;
+}
+
+// ─── Dance Battle System (Boss Only) ────────────────────────────────
+let dance = {
+    active: false,
+    arrows: [],          // { dir: 'up'|'down'|'left'|'right', y, hit, missed, speed }
+    score: 0,
+    maxScore: 0,
+    combo: 0,
+    maxCombo: 0,
+    health: 100,         // player dance health
+    bossHealth: 100,     // boss dance health
+    timer: 0,
+    duration: 30000,     // 30 seconds
+    spawnTimer: 0,
+    spawnInterval: 600,
+    bpm: 0,
+    beatTimer: 0,
+    beatPulse: 0,        // visual pulse on beat
+    hitZoneY: 420,       // where arrows should be hit
+    rating: '',          // PERFECT / GREAT / MISS
+    ratingTimer: 0,
+    noteSpeed: 2.2,
+    phase: 0,            // 0=intro, 1=playing, 2=results
+    phaseTimer: 0,
+    grooveOsc: null,     // background music oscillator
+    bassOsc: null,
+    groovePlaying: false,
+    playerDanceFrame: 0,
+    bossDanceFrame: 0,
+    won: false,
+};
+
+// Groovy background music for dance battle (Web Audio)
+function startGrooveMusic() {
+    ensureAudio();
+    if (!audioCtx) return;
+    dance.groovePlaying = true;
+
+    // Bass line loop
+    function playBassNote(freq, startTime, dur) {
+        let o = audioCtx.createOscillator();
+        let g = audioCtx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(freq, startTime);
+        g.gain.setValueAtTime(0.12, startTime);
+        g.gain.exponentialRampToValueAtTime(0.01, startTime + dur);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(startTime); o.stop(startTime + dur);
+    }
+
+    // Kick drum
+    function playKick(startTime) {
+        let o = audioCtx.createOscillator();
+        let g = audioCtx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(150, startTime);
+        o.frequency.exponentialRampToValueAtTime(40, startTime + 0.15);
+        g.gain.setValueAtTime(0.3, startTime);
+        g.gain.exponentialRampToValueAtTime(0.01, startTime + 0.2);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(startTime); o.stop(startTime + 0.2);
+    }
+
+    // Hi-hat
+    function playHihat(startTime) {
+        let dur = 0.05;
+        let bufSize = audioCtx.sampleRate * dur;
+        let buf = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+        let data = buf.getChannelData(0);
+        for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.08;
+        let src = audioCtx.createBufferSource();
+        let g = audioCtx.createGain();
+        src.buffer = buf;
+        g.gain.setValueAtTime(0.08, startTime);
+        g.gain.exponentialRampToValueAtTime(0.001, startTime + dur);
+        src.connect(g); g.connect(audioCtx.destination);
+        src.start(startTime); src.stop(startTime + dur);
+    }
+
+    // Melody
+    function playMelody(freq, startTime, dur) {
+        let o = audioCtx.createOscillator();
+        let g = audioCtx.createGain();
+        o.type = 'square';
+        o.frequency.setValueAtTime(freq, startTime);
+        g.gain.setValueAtTime(0.06, startTime);
+        g.gain.exponentialRampToValueAtTime(0.01, startTime + dur * 0.8);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(startTime); o.stop(startTime + dur);
+    }
+
+    let now = audioCtx.currentTime + 0.1;
+    let bpm = 120;
+    let beatDur = 60 / bpm;
+    dance.bpm = bpm;
+
+    // 8-bar loop (32 beats)
+    let bassNotes = [65.41, 73.42, 82.41, 73.42, 65.41, 87.31, 82.41, 73.42]; // C2, D2, E2, D2, C2, F2, E2, D2
+    let melodyNotes = [261.6, 329.6, 392, 329.6, 349.2, 392, 440, 392]; // C4, E4, G4, E4, F4, G4, A4, G4
+
+    for (let loop = 0; loop < 4; loop++) {
+        let loopStart = now + loop * 8 * beatDur;
+        for (let beat = 0; beat < 8; beat++) {
+            let t = loopStart + beat * beatDur;
+            playKick(t);
+            playHihat(t + beatDur * 0.25);
+            playHihat(t + beatDur * 0.5);
+            playHihat(t + beatDur * 0.75);
+            playBassNote(bassNotes[beat], t, beatDur * 0.8);
+            if (beat % 2 === 0) playMelody(melodyNotes[beat], t, beatDur * 0.6);
+        }
+    }
+}
+
+function startDanceBattle() {
+    dance.active = true;
+    dance.arrows = [];
+    dance.score = 0;
+    dance.maxScore = 0;
+    dance.combo = 0;
+    dance.maxCombo = 0;
+    dance.health = 100;
+    dance.bossHealth = 100;
+    dance.timer = 0;
+    dance.duration = 30000;
+    dance.spawnTimer = 0;
+    dance.spawnInterval = 600;
+    dance.rating = '';
+    dance.ratingTimer = 0;
+    dance.phase = 0;
+    dance.phaseTimer = 0;
+    dance.noteSpeed = 2.5;
+    dance.playerDanceFrame = 0;
+    dance.bossDanceFrame = 0;
+    dance.won = false;
+    dance.beatTimer = 0;
+    dance.beatPulse = 0;
+    state = ST.DANCE_BATTLE;
+}
+
+function spawnDanceArrow() {
+    let dirs = ['left', 'up', 'down', 'right'];
+    let dir = dirs[Math.floor(Math.random() * 4)];
+    dance.arrows.push({
+        dir: dir,
+        y: -30,
+        hit: false,
+        missed: false,
+        speed: dance.noteSpeed,
+        glow: 0
+    });
+    dance.maxScore += 100;
+}
+
+function hitDanceArrow(dir) {
+    if (dance.phase !== 1) return;
+    let best = null, bestDist = 999;
+    for (let a of dance.arrows) {
+        if (a.hit || a.missed || a.dir !== dir) continue;
+        let dist = Math.abs(a.y - dance.hitZoneY);
+        if (dist < bestDist) { bestDist = dist; best = a; }
+    }
+    if (best && bestDist < 50) {
+        best.hit = true;
+        best.glow = 1;
+        if (bestDist < 15) {
+            dance.rating = 'PERFECT!';
+            dance.score += 100;
+            dance.bossHealth -= 5;
+            SFX.special();
+        } else if (bestDist < 30) {
+            dance.rating = 'GREAT!';
+            dance.score += 70;
+            dance.bossHealth -= 3;
+            SFX.jab();
+        } else {
+            dance.rating = 'OK';
+            dance.score += 30;
+            dance.bossHealth -= 1;
+            SFX.hit();
+        }
+        dance.ratingTimer = 600;
+        dance.combo++;
+        if (dance.combo > dance.maxCombo) dance.maxCombo = dance.combo;
+        dance.beatPulse = 1;
+    } else {
+        dance.rating = 'MISS!';
+        dance.ratingTimer = 400;
+        dance.combo = 0;
+        dance.health -= 5;
+        SFX.miss();
+    }
+}
+
+// Track per-run stats for awards
+let runStats = {
+    fightsAvoided: 0,
+    fightsWon: 0,
+    talkedOut: 0,
+    totalFights: 0,
+    drinksUsed: 0,
+    combatStartTime: 0,
+    damageTaken: 0,
+    floorFightsAvoided: {},  // floor# -> count of avoided fights per floor
+};
 
 // ─── Particles ───────────────────────────────────────────────────────
 let particles = [];
@@ -595,6 +1027,7 @@ function resetCombat() {
         lastSlipDir: 0, uppercutHand: 'right',
         cutsceneLines: [], cutsceneIdx: 0, cutsceneCharIdx: 0,
         cutsceneTyped: '', cutsceneDelay: 0, cutsceneKO: false,
+        fightTime: 0, qteMultiplier: 1,
     };
 }
 
@@ -634,6 +1067,50 @@ document.addEventListener('keydown', e => {
         case ST.GAMEOVER:
         case ST.WIN:
             if (e.key === 'Enter') { SFX.menuSelect(); state = ST.MENU; menuCursor = 0; }
+            break;
+        case ST.DIALOGUE: {
+            let dEntry = dialogueState.lines[dialogueState.idx];
+            let dChoices = (dEntry && dEntry.choices && dialogueState.showChoices) ? dEntry.choices : [];
+            if (k === 'arrowup' || k === 'w') {
+                if (dChoices.length > 0) {
+                    dialogueState.choiceCursor = (dialogueState.choiceCursor - 1 + dChoices.length) % dChoices.length;
+                    SFX.menuMove();
+                }
+            }
+            if (k === 'arrowdown' || k === 's') {
+                if (dChoices.length > 0) {
+                    dialogueState.choiceCursor = (dialogueState.choiceCursor + 1) % dChoices.length;
+                    SFX.menuMove();
+                }
+            }
+            if (e.key === 'Enter' || e.key === ' ') { SFX.menuSelect(); advanceDialogue(); }
+            break;
+        }
+        case ST.QTE:
+            break; // QTE uses mouse clicks only
+        case ST.DANCE_BATTLE:
+            if (dance.phase === 2 && dance.phaseTimer > 2500) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    SFX.menuSelect();
+                    if (dance.won) {
+                        startCutscene(combat.enemy, true);
+                    } else {
+                        // Lost dance, fight normally
+                        combat.introTimer = 1200;
+                        state = ST.FIGHT_INTRO;
+                        SFX.fightIntro();
+                    }
+                }
+            } else if (dance.phase === 1) {
+                // Arrow inputs
+                let dirMap = { arrowleft: 'left', arrowright: 'right', arrowup: 'up', arrowdown: 'down', a: 'left', d: 'right', w: 'up', s: 'down' };
+                if (dirMap[k]) { hitDanceArrow(dirMap[k]); }
+            }
+            break;
+        case ST.AWARDS:
+            if (k === 'arrowup' || k === 'w') { awardsCursor = Math.max(0, awardsCursor - 1); SFX.menuMove(); }
+            if (k === 'arrowdown' || k === 's') { awardsCursor = Math.min(AWARDS_LIST.length - 1, awardsCursor + 1); SFX.menuMove(); }
+            if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Enter') { SFX.menuBack(); state = ST.MENU; menuCursor = 0; }
             break;
     }
 });
@@ -692,6 +1169,36 @@ canvas.addEventListener('mousemove', e => {
                 if (y >= iy - 18 && y <= iy + 18 && x >= W * 0.15 && x <= W * 0.85) {
                     if (settingsCursor !== i) { settingsCursor = i; SFX.menuMove(); }
                     break;
+                }
+            }
+            break;
+        }
+        case ST.AWARDS: {
+            let awStartY = 75;
+            let visC = 7;
+            let scOff = Math.max(0, awardsCursor - visC + 2);
+            scOff = Math.min(scOff, Math.max(0, AWARDS_LIST.length - visC));
+            for (let vi = 0; vi < visC; vi++) {
+                let ai = vi + scOff;
+                if (ai >= AWARDS_LIST.length) break;
+                let ay = awStartY + vi * 56;
+                if (y >= ay - 4 && y <= ay + 48) {
+                    if (awardsCursor !== ai) { awardsCursor = ai; SFX.menuMove(); }
+                    break;
+                }
+            }
+            break;
+        }
+        case ST.DIALOGUE: {
+            let dEntryM = dialogueState.lines[dialogueState.idx];
+            if (dEntryM && dEntryM.choices && dialogueState.showChoices) {
+                let choiceBoxYM = H * 0.45;
+                for (let ci = 0; ci < dEntryM.choices.length; ci++) {
+                    let cyM = choiceBoxYM + 40 + ci * 42;
+                    if (y >= cyM - 14 && y <= cyM + 18 && x >= 55 && x <= W - 55) {
+                        if (dialogueState.choiceCursor !== ci) { dialogueState.choiceCursor = ci; SFX.menuMove(); }
+                        break;
+                    }
                 }
             }
             break;
@@ -862,6 +1369,63 @@ function handleCanvasClick(x, y, button) {
             break;
         case ST.FIGHT_INTRO:
             break;
+        case ST.QTE:
+            clickQTE(x, y);
+            break;
+        case ST.DIALOGUE: {
+            // Check if click is on a choice
+            let dEntry2 = dialogueState.lines[dialogueState.idx];
+            let dChoices2 = (dEntry2 && dEntry2.choices && dialogueState.showChoices) ? dEntry2.choices : [];
+            if (dChoices2.length > 0) {
+                let choiceBoxY2 = H * 0.45;
+                for (let ci = 0; ci < dChoices2.length; ci++) {
+                    let cy = choiceBoxY2 + 40 + ci * 42;
+                    if (x >= 55 && x <= W - 55 && y >= cy - 14 && y <= cy + 18) {
+                        dialogueState.choiceCursor = ci;
+                        SFX.menuSelect();
+                        advanceDialogue();
+                        return;
+                    }
+                }
+            } else {
+                SFX.cutsceneNext();
+                advanceDialogue();
+            }
+            break;
+        }
+        case ST.DANCE_BATTLE:
+            if (dance.phase === 2 && dance.phaseTimer > 2500) {
+                SFX.menuSelect();
+                if (dance.won) {
+                    startCutscene(combat.enemy, true);
+                } else {
+                    combat.introTimer = 1200;
+                    state = ST.FIGHT_INTRO;
+                    SFX.fightIntro();
+                }
+            }
+            break;
+        case ST.AWARDS:
+            // Click on back area or any award
+            if (y > H - 50) {
+                SFX.menuBack(); state = ST.MENU; menuCursor = 0;
+            } else {
+                let startAY = 75;
+                let visCount = 7;
+                let scrollOff = Math.max(0, awardsCursor - visCount + 2);
+                scrollOff = Math.min(scrollOff, Math.max(0, AWARDS_LIST.length - visCount));
+                for (let vi = 0; vi < visCount; vi++) {
+                    let ai = vi + scrollOff;
+                    if (ai >= AWARDS_LIST.length) break;
+                    let ay = startAY + vi * 56;
+                    if (y >= ay - 4 && y <= ay + 48) {
+                        awardsCursor = ai;
+                        SFX.menuMove();
+                        break;
+                    }
+                }
+            }
+            break;
     }
 }
 
@@ -869,7 +1433,8 @@ function selectMenuOption() {
     switch (menuCursor) {
         case 0: startGame(); break;
         case 1: state = ST.SHOP; shopCursor = 0; shopTab = 0; break;
-        case 2: settingsPrevState = null; state = ST.SETTINGS; settingsCursor = 0; break;
+        case 2: state = ST.AWARDS; awardsCursor = 0; break;
+        case 3: settingsPrevState = null; state = ST.SETTINGS; settingsCursor = 0; break;
     }
 }
 
@@ -965,10 +1530,12 @@ function drinkBottle() {
     if (inventory.bottles <= 0) return;
     inventory.bottles--;
     drinkCount++;
+    runStats.drinksUsed++;
     player.health = player.maxHealth;
     SFX.drink();
     if (drinkCount === 1) { drunkLevel = 1; drunkNotify = 'TIPSY'; drunkNotifyTimer = 2500; drunkBlurAmount = 2; }
     else if (drinkCount >= 2) { drunkLevel = 2; drunkNotify = 'DRUNK'; drunkNotifyTimer = 3500; drunkBlurAmount = 5; }
+    if (runStats.drinksUsed >= 5) grantAward('bar_tab');
 }
 
 // ─── Combat Key Handling ─────────────────────────────────────────────
@@ -1025,10 +1592,9 @@ function executeAttack(type) {
 
 function executeSpecial() {
     if (combat.cooldown > 0 || combat.attacking) return;
-    combat.attacking = true;
-    combat.attackType = 'special';
-    combat.attackTimer = 500;
+    // Trigger QTE before special attack
     playerXp = 0;
+    startQTE();
 }
 
 // ─── Stair Detection ─────────────────────────────────────────────────
@@ -2454,7 +3020,13 @@ function advanceCutscene() {
     combat.cutsceneIdx++;
     if (combat.cutsceneIdx >= combat.cutsceneLines.length) {
         if (combat.cutsceneKO) {
-            if (allEnemiesDefeated()) state = ST.WIN;
+            if (allEnemiesDefeated()) {
+                state = ST.WIN;
+                grantAward('full_clear');
+                if (drinkCount === 0) grantAward('sober_warrior');
+                if (runStats.talkedOut > 0) grantAward('pacifist');
+                if (runStats.talkedOut >= 3) grantAward('silver_tongue');
+            }
             else state = ST.EXPLORE;
         } else {
             combat.introTimer = 1200; state = ST.FIGHT_INTRO;
@@ -2462,6 +3034,264 @@ function advanceCutscene() {
         return;
     }
     combat.cutsceneCharIdx = 0; combat.cutsceneTyped = ''; combat.cutsceneDelay = 0;
+}
+
+// ─── Dialogue System ─────────────────────────────────────────────────
+function startDialogue(enemy) {
+    let tree = DIALOGUE_TREES[enemy.name];
+    if (!tree) {
+        // Fallback to old cutscene if no dialogue tree
+        startCutscene(enemy, false);
+        return;
+    }
+    dialogueState.enemy = enemy;
+    dialogueState.lines = tree.lines;
+    dialogueState.idx = 0;
+    dialogueState.charIdx = 0;
+    dialogueState.typed = '';
+    dialogueState.delay = 0;
+    dialogueState.choiceCursor = 0;
+    dialogueState.showChoices = false;
+    dialogueState.avoided = false;
+    state = ST.DIALOGUE;
+}
+
+function updateDialogue(dt) {
+    let entry = dialogueState.lines[dialogueState.idx];
+    if (!entry) return;
+    if (entry.choices) {
+        dialogueState.showChoices = true;
+        return;
+    }
+    if (dialogueState.charIdx < entry.text.length) {
+        dialogueState.delay += dt;
+        while (dialogueState.delay >= 35 && dialogueState.charIdx < entry.text.length) {
+            dialogueState.delay -= 35;
+            dialogueState.charIdx++;
+            dialogueState.typed = entry.text.substring(0, dialogueState.charIdx);
+            SFX.cutsceneType();
+        }
+    }
+}
+
+function advanceDialogue() {
+    let entry = dialogueState.lines[dialogueState.idx];
+    if (!entry) return;
+
+    if (entry.choices) {
+        // Player selected a choice
+        let choice = entry.choices[dialogueState.choiceCursor];
+        if (!choice) return;
+
+        if (choice.result === 'talk_out') {
+            // Avoided the fight!
+            dialogueState.avoided = true;
+            runStats.fightsAvoided++;
+            let floor = LEVELS[currentLevel].floor;
+            if (!runStats.floorFightsAvoided[floor]) runStats.floorFightsAvoided[floor] = 0;
+            runStats.floorFightsAvoided[floor]++;
+
+            // Mark enemy as "defeated" (avoided)
+            dialogueState.enemy.alive = false;
+            defeatedEnemies.add(dialogueState.enemy.name);
+
+            grantAward('smooth_talker');
+
+            // Check if all fights on this floor were avoided
+            let floorEnemies = LEVELS[currentLevel].enemies.filter(e => !e.isBag).length;
+            if (runStats.floorFightsAvoided[floor] >= floorEnemies) {
+                grantAward('pacifist');
+            }
+
+            // Show reply then return to explore
+            dialogueState.lines.push({ speaker: dialogueState.enemy.name, text: choice.reply });
+            dialogueState.lines.push({ speaker: '*', text: dialogueState.enemy.name + " lets you pass..." });
+            dialogueState.idx++;
+            dialogueState.charIdx = 0;
+            dialogueState.typed = '';
+            dialogueState.delay = 0;
+            dialogueState.showChoices = false;
+            addNotif('Fight avoided! +50 coins', 2500);
+            saveData.coins += 50;
+            player.score += 200;
+            writeSave();
+        } else if (choice.result === 'dance') {
+            // Boss dance battle!
+            dialogueState.lines.push({ speaker: 'Red King', text: choice.reply });
+            dialogueState.lines.push({ speaker: '*', text: "The music starts playing..." });
+            dialogueState.idx++;
+            dialogueState.charIdx = 0;
+            dialogueState.typed = '';
+            dialogueState.delay = 0;
+            dialogueState.showChoices = false;
+            dialogueState._pendingDance = true;
+        } else {
+            // Fight!
+            dialogueState.lines.push({ speaker: dialogueState.enemy.name, text: choice.reply });
+            dialogueState.idx++;
+            dialogueState.charIdx = 0;
+            dialogueState.typed = '';
+            dialogueState.delay = 0;
+            dialogueState.showChoices = false;
+            dialogueState._pendingFight = true;
+        }
+        return;
+    }
+
+    // Normal dialogue line
+    if (dialogueState.charIdx < entry.text.length) {
+        // Skip to end of line
+        dialogueState.typed = entry.text;
+        dialogueState.charIdx = entry.text.length;
+        return;
+    }
+
+    // Advance to next line
+    dialogueState.idx++;
+    if (dialogueState.idx >= dialogueState.lines.length) {
+        // All dialogue done
+        if (dialogueState._pendingDance) {
+            dialogueState._pendingDance = false;
+            startDanceBattle();
+        } else if (dialogueState._pendingFight) {
+            dialogueState._pendingFight = false;
+            runStats.totalFights++;
+            runStats.combatStartTime = Date.now();
+            runStats.damageTaken = 0;
+            combat.introTimer = 1200;
+            state = ST.FIGHT_INTRO;
+            SFX.fightIntro();
+        } else if (dialogueState.avoided) {
+            state = ST.EXPLORE;
+            runStats.talkedOut++;
+            if (allEnemiesDefeated()) {
+                state = ST.WIN;
+                grantAward('full_clear');
+                if (drinkCount === 0) grantAward('sober_warrior');
+                if (runStats.talkedOut > 0) grantAward('pacifist');
+                if (runStats.talkedOut >= 3) grantAward('silver_tongue');
+            }
+        } else {
+            state = ST.EXPLORE;
+        }
+        return;
+    }
+    dialogueState.charIdx = 0;
+    dialogueState.typed = '';
+    dialogueState.delay = 0;
+    dialogueState.showChoices = false;
+}
+
+function renderDialogue() {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    let t = Date.now() * 0.001;
+    let en = dialogueState.enemy;
+    let vd = VILLAIN_DATA[en.name] || {};
+
+    // Background atmosphere
+    let fogGrad = ctx.createLinearGradient(0, H * 0.5, 0, H);
+    fogGrad.addColorStop(0, 'rgba(80,0,0,0)');
+    fogGrad.addColorStop(1, 'rgba(40,0,0,0.3)');
+    ctx.fillStyle = fogGrad; ctx.fillRect(0, 0, W, H);
+
+    // Spotlight
+    let spotGrad = ctx.createRadialGradient(W/2, H*0.3, 20, W/2, H*0.3, 200);
+    spotGrad.addColorStop(0, 'rgba(120,20,20,0.15)');
+    spotGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = spotGrad; ctx.fillRect(0, 0, W, H);
+
+    // Draw villain portrait (compact)
+    let cx = W / 2, cy = H * 0.22;
+    let headR = (vd.headSize || 28) * 1.2;
+    let bw = (vd.bodyW || 80) * 0.9, bh = (vd.bodyH || 85) * 0.7;
+    let sway = Math.sin(t * 1.5) * 2;
+    cx += sway;
+
+    ctx.fillStyle = vd.bodyColor || '#552222';
+    ctx.fillRect(cx - bw/2, cy + 12, bw, bh);
+    ctx.fillStyle = vd.skinColor || '#884444';
+    ctx.beginPath(); ctx.arc(cx, cy - headR + 16, headR, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(cx - headR * 0.35, cy - headR + 10, headR * 0.2, headR * 0.15);
+    ctx.fillRect(cx + headR * 0.15, cy - headR + 10, headR * 0.2, headR * 0.15);
+    ctx.fillStyle = vd.gloveColor || '#cc0000';
+    ctx.beginPath(); ctx.arc(cx - bw/2 - 12 + Math.sin(t*2)*3, cy + bh*0.4, 14, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + bw/2 + 12 + Math.sin(t*2+1)*3, cy + bh*0.4, 14, 0, Math.PI*2); ctx.fill();
+
+    if (vd.style === 'boss') {
+        ctx.fillStyle = '#ffcc00'; ctx.fillRect(cx - headR, cy - headR*2 + 16, headR*2, 7);
+    }
+
+    let entry = dialogueState.lines[dialogueState.idx];
+
+    if (entry && entry.choices && dialogueState.showChoices) {
+        // Show choices
+        ctx.fillStyle = 'rgba(30,0,0,0.95)';
+        let choiceBoxY = H * 0.45;
+        let choiceBoxH = entry.choices.length * 42 + 30;
+        ctx.fillRect(40, choiceBoxY, W - 80, choiceBoxH);
+        ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2;
+        ctx.strokeRect(40, choiceBoxY, W - 80, choiceBoxH);
+
+        ctx.fillStyle = '#ff6644'; ctx.font = 'bold 13px Courier New';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('CHOOSE YOUR RESPONSE:', W/2, choiceBoxY + 16);
+
+        for (let i = 0; i < entry.choices.length; i++) {
+            let cy2 = choiceBoxY + 40 + i * 42;
+            let sel = i === dialogueState.choiceCursor;
+            if (sel) {
+                ctx.fillStyle = 'rgba(255,0,0,0.15)';
+                ctx.fillRect(55, cy2 - 14, W - 110, 32);
+                ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 1;
+                ctx.strokeRect(55, cy2 - 14, W - 110, 32);
+            }
+            ctx.fillStyle = sel ? '#ffffff' : '#aa6666';
+            ctx.font = (sel ? 'bold ' : '') + '14px Courier New';
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            let prefix = sel ? '▸ ' : '  ';
+            ctx.fillText(prefix + entry.choices[i].text, 65, cy2);
+        }
+
+        // Hint
+        ctx.fillStyle = '#665555'; ctx.font = '11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('W/S or ↑/↓ to choose  |  ENTER or CLICK to select', W/2, choiceBoxY + choiceBoxH - 8);
+
+    } else if (entry) {
+        // Show dialogue text
+        let bx2 = 60, by2 = H - 140, bww = W - 120, bhh = 110;
+        let boxGrad = ctx.createLinearGradient(bx2, by2, bx2, by2 + bhh);
+        boxGrad.addColorStop(0, 'rgba(40,0,0,0.95)');
+        boxGrad.addColorStop(1, 'rgba(20,0,0,0.98)');
+        ctx.fillStyle = boxGrad;
+        ctx.fillRect(bx2, by2, bww, bhh);
+        ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 2;
+        ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 8;
+        ctx.strokeRect(bx2, by2, bww, bhh);
+        ctx.shadowBlur = 0;
+
+        // Speaker name
+        let speaker = entry.speaker || en.name;
+        ctx.fillStyle = speaker === 'You' ? '#44aaff' : speaker === '*' ? '#888888' : '#ff4444';
+        ctx.font = 'bold 12px Courier New';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText(speaker + ':', bx2 + 12, by2 + 8);
+
+        // Typed text
+        ctx.fillStyle = '#ffffff'; ctx.font = '16px Courier New';
+        ctx.fillText(dialogueState.typed, bx2 + 12, by2 + 28);
+
+        if (dialogueState.charIdx >= (entry.text || '').length) {
+            if (Math.floor(Date.now() / 400) % 2) {
+                ctx.fillStyle = '#aaaaaa'; ctx.font = 'bold 12px Courier New'; ctx.textAlign = 'right';
+                ctx.fillText('[CLICK / ENTER / SPACE]', bx2 + bww - 12, by2 + bhh - 14);
+            }
+        }
+    }
+
+    renderScanlines();
+    ctx.textBaseline = 'alphabetic';
 }
 
 function updateCutscene(dt) {
@@ -3273,6 +4103,532 @@ function updateNotifications(dt) {
     }
 }
 
+// ─── QTE Rendering ──────────────────────────────────────────────────
+function updateQTE(dt) {
+    qte.timer += dt;
+    qte.fadeIn = Math.min(1, qte.timer / 300);
+
+    // Check if all circles have either been hit or expired
+    let allDone = true;
+    for (let c of qte.circles) {
+        if (c.hit) continue;
+        let elapsed = qte.timer - c.spawnDelay;
+        if (elapsed < 0 || elapsed <= c.shrinkMax) { allDone = false; break; }
+    }
+
+    if ((qte.timer >= qte.timeLimit || allDone) && !qte.done) {
+        finishQTE();
+    }
+
+    if (qte.done) {
+        qte.resultTimer -= dt;
+        if (qte.resultTimer <= 0) {
+            // Apply the special attack with QTE multiplier and return to combat
+            combat.qteMultiplier = qte.damageMult;
+            combat.attacking = true;
+            combat.attackType = 'special';
+            combat.attackTimer = 500;
+            state = ST.COMBAT;
+        }
+    }
+}
+
+function renderQTE() {
+    // Dark background
+    ctx.fillStyle = 'rgba(0,0,0,0.85)'; ctx.fillRect(0, 0, W, H);
+    let t = Date.now() * 0.001;
+
+    // Title
+    ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 28px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 15;
+    ctx.fillText('⚡ QUICK TIME EVENT ⚡', W / 2, 30);
+    ctx.shadowBlur = 0;
+
+    // Time bar
+    let timeLeft = Math.max(0, 1 - qte.timer / qte.timeLimit);
+    let barW = W - 100;
+    ctx.fillStyle = '#220000'; ctx.fillRect(50, 55, barW, 12);
+    let timeColor = timeLeft > 0.5 ? '#44ff44' : timeLeft > 0.25 ? '#ffaa00' : '#ff2222';
+    ctx.fillStyle = timeColor; ctx.fillRect(50, 55, barW * timeLeft, 12);
+    ctx.strokeStyle = '#666'; ctx.lineWidth = 1; ctx.strokeRect(50, 55, barW, 12);
+
+    ctx.fillStyle = '#ffffff'; ctx.font = '11px Courier New';
+    ctx.fillText('CLICK THE CIRCLES!', W / 2, 82);
+
+    // Draw circles
+    for (let c of qte.circles) {
+        let elapsed = qte.timer - c.spawnDelay;
+        if (elapsed < 0) continue; // Not spawned yet
+
+        if (c.hit) {
+            // Hit effect - expanding ring
+            let hitProg = Math.min(1, (elapsed - c.spawnDelay) * 0.005);
+            ctx.globalAlpha = 1 - hitProg;
+            ctx.strokeStyle = '#44ff44'; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.arc(c.x, c.y, c.r + hitProg * 30, 0, Math.PI * 2); ctx.stroke();
+            ctx.fillStyle = '#44ff44'; ctx.font = 'bold 16px Courier New';
+            ctx.fillText('✓', c.x, c.y - hitProg * 20);
+            ctx.globalAlpha = 1;
+            continue;
+        }
+
+        let lifeRatio = 1 - elapsed / c.shrinkMax;
+        if (lifeRatio <= 0) continue; // Expired
+
+        // Shrinking outer ring (timer indicator)
+        let outerR = c.r + 15 * lifeRatio;
+        let pulse = Math.sin(t * 8 + c.pulse) * 0.15 + 0.85;
+
+        // Outer shrinking ring
+        ctx.strokeStyle = lifeRatio > 0.4 ? 'rgba(255,200,0,' + (lifeRatio * 0.6) + ')' : 'rgba(255,50,50,' + (lifeRatio * 0.8) + ')';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(c.x, c.y, outerR, 0, Math.PI * 2); ctx.stroke();
+
+        // Inner circle (target)
+        let grad = ctx.createRadialGradient(c.x - 3, c.y - 3, 2, c.x, c.y, c.r);
+        grad.addColorStop(0, 'rgba(255,100,50,' + (pulse * 0.8) + ')');
+        grad.addColorStop(0.7, 'rgba(200,50,0,' + (pulse * 0.6) + ')');
+        grad.addColorStop(1, 'rgba(150,0,0,0.3)');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(c.x, c.y, c.r * pulse, 0, Math.PI * 2); ctx.fill();
+
+        // Glow
+        ctx.shadowColor = '#ff4400'; ctx.shadowBlur = 12;
+        ctx.strokeStyle = '#ff6633'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2); ctx.stroke();
+        ctx.shadowBlur = 0;
+
+        // Crosshair inside
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(c.x - c.r * 0.5, c.y); ctx.lineTo(c.x + c.r * 0.5, c.y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(c.x, c.y - c.r * 0.5); ctx.lineTo(c.x, c.y + c.r * 0.5); ctx.stroke();
+    }
+
+    // Score counter
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText(qte.clicked + ' / ' + qte.total, W / 2, H - 30);
+
+    // Result overlay
+    if (qte.done) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
+        let ratio = qte.clicked / qte.total;
+        let resultText = ratio >= 1 ? 'PERFECT!' : ratio >= 0.7 ? 'GREAT!' : ratio >= 0.4 ? 'OK!' : 'WEAK...';
+        let resultColor = ratio >= 1 ? '#44ff44' : ratio >= 0.7 ? '#ffcc00' : ratio >= 0.4 ? '#ff8844' : '#ff2222';
+        ctx.fillStyle = resultColor; ctx.font = 'bold 48px Courier New';
+        ctx.shadowColor = resultColor; ctx.shadowBlur = 20;
+        ctx.fillText(resultText, W / 2, H / 2 - 20);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff'; ctx.font = '20px Courier New';
+        ctx.fillText('Damage Multiplier: x' + qte.damageMult.toFixed(1), W / 2, H / 2 + 25);
+    }
+
+    renderScanlines();
+    ctx.textBaseline = 'alphabetic';
+}
+
+// ─── Dance Battle Rendering ─────────────────────────────────────────
+function updateDanceBattle(dt) {
+    dance.timer += dt;
+    dance.beatTimer += dt;
+    let beatDur = 60000 / (dance.bpm || 120);
+    if (dance.beatTimer >= beatDur) {
+        dance.beatTimer -= beatDur;
+        dance.beatPulse = 1;
+    }
+    dance.beatPulse *= 0.92;
+
+    if (dance.phase === 0) {
+        // Intro phase
+        dance.phaseTimer += dt;
+        if (dance.phaseTimer >= 2000) {
+            dance.phase = 1;
+            dance.phaseTimer = 0;
+            startGrooveMusic();
+        }
+        return;
+    }
+
+    if (dance.phase === 2) {
+        // Results phase
+        dance.phaseTimer += dt;
+        return;
+    }
+
+    // Playing phase
+    dance.spawnTimer += dt;
+    if (dance.spawnTimer >= dance.spawnInterval) {
+        dance.spawnTimer -= dance.spawnInterval;
+        spawnDanceArrow();
+        // Speed up over time
+        if (dance.spawnInterval > 350) dance.spawnInterval -= 3;
+        if (dance.noteSpeed < 4) dance.noteSpeed += 0.005;
+    }
+
+    dance.ratingTimer -= dt;
+    dance.playerDanceFrame += dt * 0.004;
+    dance.bossDanceFrame += dt * 0.003;
+
+    // Update arrows
+    for (let a of dance.arrows) {
+        if (a.hit || a.missed) continue;
+        a.y += a.speed * dt * 0.3;
+        if (a.y > dance.hitZoneY + 60) {
+            a.missed = true;
+            dance.combo = 0;
+            dance.health -= 3;
+        }
+    }
+
+    // Clean old arrows
+    dance.arrows = dance.arrows.filter(a => a.y < H + 50);
+
+    // Check end conditions
+    if (dance.timer >= dance.duration || dance.health <= 0 || dance.bossHealth <= 0) {
+        dance.phase = 2;
+        dance.phaseTimer = 0;
+        dance.won = dance.bossHealth <= 0 || (dance.health > 0 && dance.score > dance.maxScore * 0.4);
+        if (dance.won) {
+            grantAward('dance_king');
+            // Boss is defeated
+            combat.enemy.alive = false;
+            combat.enemy.health = 0;
+            defeatedEnemies.add(combat.enemy.name);
+            player.score += 5000;
+            saveData.coins += 200;
+            grantAward('boss_slayer');
+            writeSave();
+        } else {
+            grantAward('dance_loser');
+        }
+    }
+}
+
+function renderDanceBattle() {
+    let t = Date.now() * 0.001;
+
+    // Disco background
+    let bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+    bgGrad.addColorStop(0, '#0a001a');
+    bgGrad.addColorStop(0.5, '#1a002a');
+    bgGrad.addColorStop(1, '#0a0020');
+    ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
+
+    // Disco floor tiles
+    for (let fx = 0; fx < 10; fx++) {
+        for (let fy = 0; fy < 4; fy++) {
+            let tileX = fx * 80, tileY = H - 80 + fy * 20;
+            let brightness = Math.sin(t * 3 + fx * 0.5 + fy * 0.7) * 0.3 + 0.2;
+            let hue = ((fx + fy) * 40 + t * 50) % 360;
+            ctx.fillStyle = 'hsla(' + hue + ', 80%, 40%, ' + brightness + ')';
+            ctx.fillRect(tileX, tileY, 78, 18);
+        }
+    }
+
+    // Beat pulse effect
+    if (dance.beatPulse > 0.1) {
+        ctx.fillStyle = 'rgba(255,255,255,' + (dance.beatPulse * 0.05) + ')';
+        ctx.fillRect(0, 0, W, H);
+    }
+
+    // Disco ball at top
+    ctx.fillStyle = '#888'; ctx.beginPath(); ctx.arc(W/2, 25, 15, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    for (let i = 0; i < 6; i++) {
+        let angle = t * 2 + i * Math.PI / 3;
+        ctx.beginPath(); ctx.arc(W/2 + Math.cos(angle)*8, 25 + Math.sin(angle)*8, 3, 0, Math.PI*2); ctx.fill();
+    }
+    // Spotlights from disco ball
+    for (let i = 0; i < 4; i++) {
+        let angle = t * 0.5 + i * Math.PI / 2;
+        let spotX = W/2 + Math.cos(angle) * 300;
+        let spotGrad = ctx.createRadialGradient(spotX, H - 40, 5, spotX, H - 40, 80);
+        let hue = (i * 90 + t * 60) % 360;
+        spotGrad.addColorStop(0, 'hsla(' + hue + ', 100%, 70%, 0.15)');
+        spotGrad.addColorStop(1, 'hsla(' + hue + ', 100%, 50%, 0)');
+        ctx.fillStyle = spotGrad; ctx.fillRect(0, H - 120, W, 120);
+    }
+
+    if (dance.phase === 0) {
+        // Intro
+        let introAlpha = Math.min(1, dance.phaseTimer / 500);
+        ctx.fillStyle = 'rgba(255,255,0,' + introAlpha + ')'; ctx.font = 'bold 40px Courier New';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#ffcc00'; ctx.shadowBlur = 20;
+        ctx.fillText('🕺 DANCE BATTLE! 🕺', W / 2, H / 2 - 30);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,' + introAlpha + ')'; ctx.font = '18px Courier New';
+        ctx.fillText('Hit the arrows with ↑↓←→ or WASD!', W / 2, H / 2 + 20);
+        let countDown = Math.ceil((2000 - dance.phaseTimer) / 1000);
+        if (countDown > 0) {
+            ctx.fillStyle = '#ff4444'; ctx.font = 'bold 60px Courier New';
+            ctx.fillText(String(countDown), W / 2, H / 2 + 80);
+        }
+        renderScanlines();
+        return;
+    }
+
+    // Arrow lanes
+    let laneWidth = 60;
+    let dirs = ['left', 'up', 'down', 'right'];
+    let dirSymbols = { left: '←', up: '↑', down: '↓', right: '→' };
+    let dirColors = { left: '#ff4488', up: '#44ff88', down: '#4488ff', right: '#ffaa44' };
+    let laneStartX = W / 2 - laneWidth * 2;
+
+    // Lane backgrounds
+    for (let i = 0; i < 4; i++) {
+        let lx = laneStartX + i * laneWidth;
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
+        ctx.fillRect(lx, 0, laneWidth - 2, H);
+        // Lane dividers
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(lx, 0); ctx.lineTo(lx, H); ctx.stroke();
+    }
+
+    // Hit zone line
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(laneStartX - 10, dance.hitZoneY); ctx.lineTo(laneStartX + laneWidth * 4 + 10, dance.hitZoneY); ctx.stroke();
+
+    // Hit zone targets
+    for (let i = 0; i < 4; i++) {
+        let lx = laneStartX + i * laneWidth + laneWidth / 2;
+        ctx.strokeStyle = dirColors[dirs[i]]; ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.4 + dance.beatPulse * 0.3;
+        ctx.beginPath(); ctx.arc(lx, dance.hitZoneY, 22, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = dirColors[dirs[i]]; ctx.font = 'bold 20px Courier New';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(dirSymbols[dirs[i]], lx, dance.hitZoneY);
+        ctx.globalAlpha = 1;
+    }
+
+    // Arrows
+    for (let a of dance.arrows) {
+        if (a.missed) continue;
+        let dirIdx = dirs.indexOf(a.dir);
+        let ax = laneStartX + dirIdx * laneWidth + laneWidth / 2;
+        let ay = a.y;
+
+        if (a.hit) {
+            // Hit burst
+            ctx.globalAlpha = a.glow;
+            ctx.fillStyle = dirColors[a.dir];
+            ctx.beginPath(); ctx.arc(ax, ay, 25 + (1 - a.glow) * 20, 0, Math.PI * 2); ctx.fill();
+            a.glow *= 0.9;
+            ctx.globalAlpha = 1;
+            continue;
+        }
+
+        // Arrow body
+        let grad = ctx.createRadialGradient(ax, ay, 5, ax, ay, 22);
+        grad.addColorStop(0, dirColors[a.dir]);
+        grad.addColorStop(1, darkenColor(dirColors[a.dir].replace(/[^#0-9a-f]/gi,'').substring(0,7) || '#ff4488', 0.5));
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(ax, ay, 20, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 18px Courier New';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(dirSymbols[a.dir], ax, ay);
+    }
+
+    // Dancing characters (left = player, right = boss)
+    // Player
+    let pDanceX = 80, pDanceY = H - 80;
+    let pBob = Math.sin(dance.playerDanceFrame * 2) * 8;
+    let pSway = Math.sin(dance.playerDanceFrame * 1.3) * 5;
+    ctx.fillStyle = getSkin().armColor;
+    ctx.beginPath(); ctx.arc(pDanceX + pSway, pDanceY - 50 + pBob, 15, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(pDanceX - 10 + pSway, pDanceY - 35 + pBob, 20, 30);
+    ctx.fillRect(pDanceX - 18 + pSway + Math.sin(dance.playerDanceFrame * 3) * 10, pDanceY - 30 + pBob, 8, 20);
+    ctx.fillRect(pDanceX + 10 + pSway - Math.sin(dance.playerDanceFrame * 3) * 10, pDanceY - 30 + pBob, 8, 20);
+    ctx.fillRect(pDanceX - 8 + Math.sin(dance.playerDanceFrame * 2.5) * 6, pDanceY - 5 + pBob, 8, 25);
+    ctx.fillRect(pDanceX + 0 - Math.sin(dance.playerDanceFrame * 2.5) * 6, pDanceY - 5 + pBob, 8, 25);
+
+    // Boss
+    let bDanceX = W - 80, bDanceY = H - 80;
+    let bBob = Math.sin(dance.bossDanceFrame * 2 + 1) * 8;
+    let bSway = Math.sin(dance.bossDanceFrame * 1.3 + 0.5) * 5;
+    ctx.fillStyle = '#aa2222';
+    ctx.beginPath(); ctx.arc(bDanceX + bSway, bDanceY - 55 + bBob, 18, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffcc00'; ctx.fillRect(bDanceX - 12 + bSway, bDanceY - 75 + bBob, 24, 6); // crown
+    ctx.fillStyle = '#330000';
+    ctx.fillRect(bDanceX - 14 + bSway, bDanceY - 37 + bBob, 28, 35);
+    ctx.fillRect(bDanceX - 24 + bSway + Math.sin(dance.bossDanceFrame * 3 + 1) * 12, bDanceY - 32 + bBob, 10, 24);
+    ctx.fillRect(bDanceX + 14 + bSway - Math.sin(dance.bossDanceFrame * 3 + 1) * 12, bDanceY - 32 + bBob, 10, 24);
+    ctx.fillRect(bDanceX - 10 + Math.sin(dance.bossDanceFrame * 2.5 + 1) * 8, bDanceY - 2 + bBob, 10, 28);
+    ctx.fillRect(bDanceX + 0 - Math.sin(dance.bossDanceFrame * 2.5 + 1) * 8, bDanceY - 2 + bBob, 10, 28);
+
+    // Rating popup
+    if (dance.ratingTimer > 0) {
+        let rAlpha = Math.min(1, dance.ratingTimer / 200);
+        let rColor = dance.rating === 'PERFECT!' ? '#44ff44' : dance.rating === 'GREAT!' ? '#ffcc00' : dance.rating === 'OK' ? '#ff8844' : '#ff2222';
+        ctx.fillStyle = rColor; ctx.font = 'bold 28px Courier New';
+        ctx.textAlign = 'center'; ctx.globalAlpha = rAlpha;
+        ctx.shadowColor = rColor; ctx.shadowBlur = 10;
+        ctx.fillText(dance.rating, W / 2, dance.hitZoneY - 50);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+    }
+
+    // Combo counter
+    if (dance.combo > 2) {
+        ctx.fillStyle = '#ffaa00'; ctx.font = 'bold 16px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText(dance.combo + 'x COMBO!', 20, 40);
+    }
+
+    // Health bars
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 12px Courier New';
+    ctx.textAlign = 'left'; ctx.fillText('YOU', 15, 55);
+    ctx.fillStyle = '#220000'; ctx.fillRect(15, 60, 150, 10);
+    let phpGrad = ctx.createLinearGradient(15, 60, 15 + 150 * (dance.health/100), 60);
+    phpGrad.addColorStop(0, '#44ff44'); phpGrad.addColorStop(1, '#22cc22');
+    ctx.fillStyle = phpGrad; ctx.fillRect(15, 60, 150 * Math.max(0, dance.health / 100), 10);
+
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 12px Courier New';
+    ctx.textAlign = 'right'; ctx.fillText('RED KING', W - 15, 55);
+    ctx.fillStyle = '#220000'; ctx.fillRect(W - 165, 60, 150, 10);
+    let bhpGrad = ctx.createLinearGradient(W - 165, 60, W - 15, 60);
+    bhpGrad.addColorStop(0, '#ff2222'); bhpGrad.addColorStop(1, '#ff4444');
+    ctx.fillStyle = bhpGrad; ctx.fillRect(W - 165, 60, 150 * Math.max(0, dance.bossHealth / 100), 10);
+
+    // Score
+    ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 14px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('SCORE: ' + dance.score, W / 2, 20);
+
+    // Results overlay
+    if (dance.phase === 2) {
+        let resAlpha = Math.min(1, dance.phaseTimer / 800);
+        ctx.fillStyle = 'rgba(0,0,0,' + (resAlpha * 0.7) + ')'; ctx.fillRect(0, 0, W, H);
+        ctx.globalAlpha = resAlpha;
+        if (dance.won) {
+            ctx.fillStyle = '#44ff44'; ctx.font = 'bold 48px Courier New';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#44ff44'; ctx.shadowBlur = 20;
+            ctx.fillText('🕺 YOU WIN! 🕺', W / 2, H / 2 - 40);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffffff'; ctx.font = '18px Courier New';
+            ctx.fillText('Red King has been OUT-GROOVED!', W / 2, H / 2 + 10);
+            ctx.fillText('Score: ' + dance.score + '  |  Max Combo: ' + dance.maxCombo, W / 2, H / 2 + 40);
+        } else {
+            ctx.fillStyle = '#ff2222'; ctx.font = 'bold 48px Courier New';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 20;
+            ctx.fillText('DEFEATED...', W / 2, H / 2 - 40);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffffff'; ctx.font = '18px Courier New';
+            ctx.fillText("Red King's moves were too strong!", W / 2, H / 2 + 10);
+            ctx.fillText('You must fight him the old-fashioned way.', W / 2, H / 2 + 40);
+        }
+        ctx.globalAlpha = 1;
+
+        if (dance.phaseTimer > 2500) {
+            if (Math.floor(Date.now() / 500) % 2) {
+                ctx.fillStyle = '#ffffff'; ctx.font = 'bold 16px Courier New';
+                ctx.fillText('[ CLICK or ENTER ]', W / 2, H / 2 + 90);
+            }
+        }
+    }
+
+    renderScanlines();
+    ctx.textBaseline = 'alphabetic';
+}
+
+// ─── Awards Screen Rendering ────────────────────────────────────────
+function renderAwards() {
+    let t = Date.now() * 0.001;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+
+    // Background glow
+    let bgGrad = ctx.createRadialGradient(W/2, H/2, 50, W/2, H/2, W * 0.6);
+    bgGrad.addColorStop(0, 'rgba(60,40,0,0.1)');
+    bgGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, W, H);
+
+    // Border
+    ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 10 + Math.sin(t * 2) * 5;
+    ctx.strokeRect(10, 10, W - 20, H - 20);
+    ctx.shadowBlur = 0;
+
+    // Title
+    ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 32px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 15;
+    ctx.fillText('🏆 AWARDS 🏆', W / 2, 40);
+    ctx.shadowBlur = 0;
+
+    // Awards list
+    let ownedAwards = saveData.awards || [];
+    let startY = 75;
+    let visibleCount = 7;
+    let scrollOffset = Math.max(0, awardsCursor - visibleCount + 2);
+    scrollOffset = Math.min(scrollOffset, Math.max(0, AWARDS_LIST.length - visibleCount));
+
+    for (let vi = 0; vi < visibleCount; vi++) {
+        let i = vi + scrollOffset;
+        if (i >= AWARDS_LIST.length) break;
+        let aw = AWARDS_LIST[i];
+        let owned = ownedAwards.includes(aw.id);
+        let sel = i === awardsCursor;
+        let ay = startY + vi * 56;
+
+        // Selection highlight
+        if (sel) {
+            ctx.fillStyle = 'rgba(255,200,0,0.08)';
+            ctx.fillRect(20, ay - 4, W - 40, 52);
+            ctx.strokeStyle = 'rgba(255,200,0,0.3)'; ctx.lineWidth = 1;
+            ctx.strokeRect(20, ay - 4, W - 40, 52);
+        }
+
+        // Icon
+        ctx.font = '24px serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        if (owned) {
+            ctx.fillText(aw.icon, 30, ay + 6);
+        } else {
+            ctx.fillStyle = '#333'; ctx.font = '24px Courier New';
+            ctx.fillText('?', 36, ay + 6);
+        }
+
+        // Name
+        ctx.fillStyle = owned ? (sel ? '#ffcc00' : '#cc9900') : (sel ? '#555555' : '#333333');
+        ctx.font = (sel ? 'bold ' : '') + '15px Courier New';
+        ctx.fillText(owned ? aw.name : '???', 60, ay + 4);
+
+        // Description
+        ctx.fillStyle = owned ? (sel ? '#aa8844' : '#776633') : '#222222';
+        ctx.font = '11px Courier New';
+        ctx.fillText(owned ? aw.desc : 'Keep playing to unlock this award...', 60, ay + 24);
+
+        // Locked/unlocked indicator
+        ctx.textAlign = 'right';
+        ctx.fillStyle = owned ? '#44ff44' : '#442222';
+        ctx.font = 'bold 12px Courier New';
+        ctx.fillText(owned ? '✓ UNLOCKED' : '🔒 LOCKED', W - 30, ay + 12);
+        ctx.textAlign = 'left';
+    }
+
+    // Scroll indicators
+    if (AWARDS_LIST.length > visibleCount) {
+        ctx.fillStyle = '#555'; ctx.font = '14px Courier New'; ctx.textAlign = 'center';
+        if (scrollOffset > 0) ctx.fillText('▲', W / 2, startY - 10);
+        if (scrollOffset + visibleCount < AWARDS_LIST.length) ctx.fillText('▼', W / 2, startY + visibleCount * 56 + 5);
+    }
+
+    // Stats
+    let unlocked = ownedAwards.length;
+    ctx.fillStyle = '#888'; ctx.font = '13px Courier New'; ctx.textAlign = 'center';
+    ctx.fillText(unlocked + ' / ' + AWARDS_LIST.length + ' Awards Unlocked', W / 2, H - 40);
+
+    // Back hint
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 13px Courier New';
+    ctx.fillText('ESC = Back to Menu', W / 2, H - 18);
+
+    renderScanlines();
+    ctx.textBaseline = 'alphabetic';
+}
+
 function renderNotifications() {
     let y = H * 0.2;
     for (let n of notifications) {
@@ -3398,7 +4754,14 @@ function updateExplore(dt) {
 
     // Check if current floor cleared
     if (enemies.length > 0 && enemies.every(e => !e.alive)) {
-        if (allEnemiesDefeated()) { state = ST.WIN; return; }
+        if (allEnemiesDefeated()) {
+            state = ST.WIN;
+            grantAward('full_clear');
+            if (drinkCount === 0) grantAward('sober_warrior');
+            if (runStats.talkedOut > 0) grantAward('pacifist');
+            if (runStats.talkedOut >= 3) grantAward('silver_tongue');
+            return;
+        }
     }
 }
 
@@ -3413,7 +4776,8 @@ function startCombat(enemy) {
         state = ST.FIGHT_INTRO;
         SFX.fightIntro();
     } else {
-        startCutscene(enemy, false);
+        // Go through dialogue with choices
+        startDialogue(enemy);
     }
 }
 
@@ -3434,6 +4798,7 @@ function getEnemyAI(en) {
 function updateCombat(dt) {
     let en = combat.enemy;
     let dm = DIFF_MULT[settings.difficulty];
+    combat.fightTime += dt;
 
     // Apply slow-motion
     let effectiveDt = dt;
@@ -3522,6 +4887,9 @@ function updateCombat(dt) {
                 // Special move
                 let special = getSkin().special;
                 let dmg = special.dmg[0] + Math.random() * (special.dmg[1] - special.dmg[0]);
+                let qteMult = combat.qteMultiplier || 1;
+                dmg *= qteMult;
+                combat.qteMultiplier = 1;
                 if (drunkLevel >= 2 && Math.random() < 0.1) {
                     combat.msg = 'MISSED! (drunk)'; combat.msgTimer = 500;
                     combat.attacking = false; combat.cooldown = 800; SFX.miss(); return;
@@ -3644,7 +5012,18 @@ function updateCombat(dt) {
                 spawnParticles(W/2, H*0.35, 40, '#ff4444');
                 spawnDmgNum(W/2, H*0.25, 'K.O.!', '#ff0000', true);
 
-                combat.koTimer = 2200; state = ST.KO; return;
+                combat.koTimer = 2200; state = ST.KO;
+
+                // Award checks at KO
+                runStats.fightsWon++;
+                if (runStats.fightsWon === 1) grantAward('first_blood');
+                if (player.health >= player.maxHealth) grantAward('flawless');
+                if (player.health <= player.maxHealth * 0.1) grantAward('glass_cannon');
+                if (comboCount >= 10) grantAward('combo_king');
+                if (combat.fightTime && combat.fightTime < 8000) grantAward('speed_demon');
+                let vd = VILLAIN_DATA[en.name];
+                if (vd && vd.floor === 5) grantAward('boss_slayer');
+                return;
             }
         }
     }
@@ -3756,6 +5135,9 @@ function startGame() {
     cameraTilt = 0; cameraTiltTarget = 0;
     slowMoTimer = 0; slowMoFactor = 1;
     screenWarp = 0; footstepTimer = 0;
+    // Reset run stats
+    runStats.fightsAvoided = 0; runStats.fightsWon = 0; runStats.talkedOut = 0;
+    runStats.totalFights = 0; runStats.drinksUsed = 0; runStats.floorFightsAvoided = {};
     initDust();
     loadLevel(0, 'start');
     startTransition('FLOOR 1: ' + LEVELS[0].name, () => {});
@@ -3810,6 +5192,17 @@ function loop(time) {
         case ST.LEVEL_TRANS:
             updateTransition(dt);
             renderTransition(); break;
+        case ST.QTE:
+            updateQTE(dt);
+            renderQTE(); break;
+        case ST.DIALOGUE:
+            updateDialogue(dt);
+            renderDialogue(); break;
+        case ST.DANCE_BATTLE:
+            updateDanceBattle(dt);
+            renderDanceBattle(); break;
+        case ST.AWARDS:
+            renderAwards(); break;
     }
 
     requestAnimationFrame(loop);
