@@ -3,16 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Drunken Street Boxing - A retro FPS boxing game with 5 floors, 9 fighters, and a shop system">
+    <meta name="theme-color" content="#1a0000">
     <title>DRUNKEN STREET BOXING</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="game-wrapper">
+    <div id="loading-screen">
+        <div class="loading-title">DRUNKEN STREET BOXING</div>
+        <div class="loading-bar-container">
+            <div class="loading-bar"></div>
+        </div>
+        <div class="loading-text">LOADING...</div>
+    </div>
+    <div class="game-wrapper" id="game-wrapper" style="display:none;">
         <canvas id="gameCanvas"></canvas>
         <div id="controls-hint">
             WASD / Arrows &mdash; Move &amp; Turn &nbsp;|&nbsp; LClick / 1 &mdash; Jab &nbsp;|&nbsp; RClick / 2 &mdash; Cross &nbsp;|&nbsp; 3 &mdash; Uppercut &nbsp;|&nbsp; Q &mdash; Special &nbsp;|&nbsp; SPACE &mdash; Block &nbsp;|&nbsp; E &mdash; Stairs &nbsp;|&nbsp; SHIFT &mdash; Drink
         </div>
     </div>
     <script src="script.js"></script>
+    <script>
+        // Loading screen
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                document.getElementById('loading-screen').style.opacity = '0';
+                document.getElementById('game-wrapper').style.display = 'flex';
+                setTimeout(function() {
+                    document.getElementById('loading-screen').style.display = 'none';
+                }, 600);
+            }, 1200);
+        });
+    </script>
 </body>
 </html>

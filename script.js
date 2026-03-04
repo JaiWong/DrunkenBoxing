@@ -8,6 +8,23 @@ const ctx = canvas.getContext('2d');
 const W = 800, H = 500;
 canvas.width = W; canvas.height = H;
 
+// Polyfill for roundRect if not supported
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+        if (typeof r === 'number') r = [r, r, r, r];
+        this.moveTo(x + r[0], y);
+        this.lineTo(x + w - r[1], y);
+        this.quadraticCurveTo(x + w, y, x + w, y + r[1]);
+        this.lineTo(x + w, y + h - r[2]);
+        this.quadraticCurveTo(x + w, y + h, x + w - r[2], y + h);
+        this.lineTo(x + r[3], y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - r[3]);
+        this.lineTo(x, y + r[0]);
+        this.quadraticCurveTo(x, y, x + r[0], y);
+        this.closePath();
+    };
+}
+
 // ─── Sound Effects (Web Audio API) ───────────────────────────────────
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let audioCtx = null;
@@ -69,6 +86,10 @@ const SFX = {
     cutsceneNext(){ playTone(500, 0.08, 'triangle', 0.08); },
     bagHit()      { playNoise(0.12, 0.12); playTone(120, 0.1, 'triangle', 0.08); },
     settingChange(){ playTone(700, 0.05, 'triangle', 0.07); },
+    footstep()    { playNoise(0.04, 0.03); playTone(100 + Math.random() * 30, 0.04, 'triangle', 0.02); },
+    comboHit()    { playTone(900 + Math.random() * 400, 0.06, 'square', 0.06); },
+    critHit()     { playTone(200, 0.2, 'sawtooth', 0.2, 600); playNoise(0.15, 0.25); playTone(1000, 0.15, 'square', 0.08); },
+    slowMo()      { playTone(120, 0.5, 'sine', 0.08, 60); },
 };
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -464,6 +485,100 @@ function spawnParticles(x, y, n, col) {
 
 // ─── Stair Prompt ────────────────────────────────────────────────────
 let stairPrompt = '';
+
+// ─── Damage Numbers (floating combat text) ───────────────────────────
+let damageNumbers = [];
+// Utility: darken a hex color
+function darkenColor(hex, factor) {
+    let r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16);
+    r = Math.round(r * factor); g = Math.round(g * factor); b = Math.round(b * factor);
+    return '#' + ((1<<24)|(r<<16)|(g<<8)|b).toString(16).slice(1);
+}
+
+function spawnDmgNum(x, y, text, color, big) {
+    damageNumbers.push({
+        x, y, text: String(text), color: color || '#ff4444',
+        vy: -2.5 - Math.random(), vx: (Math.random() - 0.5) * 2,
+        life: 1200, max: 1200, scale: big ? 1.6 : 1.0,
+        rot: (Math.random() - 0.5) * 0.3
+    });
+}
+
+// ─── Combo System ────────────────────────────────────────────────────
+let comboCount = 0;
+let comboTimer = 0;
+let comboDisplay = 0;
+let comboBest = 0;
+const COMBO_DECAY = 1800;
+
+// ─── Smooth Health Bars ──────────────────────────────────────────────
+let smoothPlayerHP = 100;
+let smoothEnemyHP = 100;
+
+// ─── Blood Screen Overlay ────────────────────────────────────────────
+let bloodOverlay = 0;
+let bloodDrips = [];
+
+// ─── Speed Lines ─────────────────────────────────────────────────────
+let speedLines = [];
+function spawnSpeedLines(count, color) {
+    for (let i = 0; i < count; i++) {
+        let angle = Math.random() * Math.PI * 2;
+        let dist = 80 + Math.random() * 180;
+        speedLines.push({
+            x: W / 2 + Math.cos(angle) * dist,
+            y: H / 2 + Math.sin(angle) * dist,
+            angle, len: 30 + Math.random() * 60,
+            life: 200 + Math.random() * 200, max: 400,
+            color: color || '#ffffff', width: 1 + Math.random() * 2
+        });
+    }
+}
+
+// ─── Camera Tilt ─────────────────────────────────────────────────────
+let cameraTilt = 0;
+let cameraTiltTarget = 0;
+
+// ─── Ambient Dust (explore mode) ─────────────────────────────────────
+let dustParticles = [];
+function initDust() {
+    dustParticles = [];
+    for (let i = 0; i < 30; i++) {
+        dustParticles.push({
+            x: Math.random() * W, y: Math.random() * H,
+            vx: (Math.random() - 0.5) * 0.3, vy: Math.random() * 0.2 + 0.05,
+            size: 0.5 + Math.random() * 1.5, alpha: 0.1 + Math.random() * 0.2
+        });
+    }
+}
+initDust();
+
+// ─── Footstep Timer ──────────────────────────────────────────────────
+let footstepTimer = 0;
+
+// ─── Menu Background Particles ───────────────────────────────────────
+let menuParticles = [];
+for (let i = 0; i < 50; i++) {
+    menuParticles.push({
+        x: Math.random() * W, y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 0.5, vy: -0.3 - Math.random() * 0.5,
+        size: 1 + Math.random() * 3, alpha: 0.1 + Math.random() * 0.4,
+        color: ['#ff0000', '#ff4400', '#ff6600', '#ffaa00'][Math.floor(Math.random() * 4)]
+    });
+}
+
+// ─── Impact Ring Effect ──────────────────────────────────────────────
+let impactRings = [];
+function spawnImpactRing(x, y, color, maxR) {
+    impactRings.push({ x, y, r: 5, maxR: maxR || 80, life: 400, max: 400, color: color || '#ff4444' });
+}
+
+// ─── Slow-motion Effect ──────────────────────────────────────────────
+let slowMoTimer = 0;
+let slowMoFactor = 1;
+
+// ─── Screen Warp ─────────────────────────────────────────────────────
+let screenWarp = 0;
 
 // ─── Combat State ────────────────────────────────────────────────────
 let combat = resetCombat();
@@ -1020,15 +1135,32 @@ function renderTransition() {
     ctx.fillRect(0, 0, W, H);
     if (transAlpha > 0.4) {
         let ta = Math.min(1, (transAlpha - 0.4) * 2.5);
+        let t = Date.now() * 0.001;
+
+        // Animated text with scale
+        let textScale = 0.8 + ta * 0.2;
+        ctx.save();
+        ctx.translate(W / 2, H / 2);
+        ctx.scale(textScale, textScale);
+
         ctx.fillStyle = 'rgba(255,0,0,' + ta + ')';
         ctx.font = 'bold 32px Courier New';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 20;
-        ctx.fillText(transText, W / 2, H / 2);
+        ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 20 + Math.sin(t * 5) * 5;
+        ctx.fillText(transText, 0, 0);
+
+        // Decorative lines
+        let lineW = ctx.measureText(transText).width * 0.6;
+        ctx.strokeStyle = 'rgba(255,100,100,' + (ta * 0.5) + ')'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(-lineW, 24); ctx.lineTo(lineW, 24); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-lineW, -24); ctx.lineTo(lineW, -24); ctx.stroke();
+
         ctx.font = '16px Courier New';
         ctx.fillStyle = 'rgba(255,100,100,' + ta + ')';
-        ctx.fillText('Entering...', W / 2, H / 2 + 36);
-        ctx.shadowBlur = 0; ctx.textBaseline = 'alphabetic';
+        ctx.fillText('Entering...', 0, 44);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        ctx.textBaseline = 'alphabetic';
     }
 }
 
@@ -1040,11 +1172,54 @@ function allEnemiesDefeated() {
     return true;
 }
 
+// ─── Floor/Ceiling Rendering ─────────────────────────────────────────
+function renderFloorCeiling() {
+    let lvl = LEVELS[currentLevel];
+    let c1 = lvl.floorC1, c2 = lvl.floorC2;
+    // Parse floor colors for checkerboard
+    let fc1r = parseInt(c1.substr(1,2),16), fc1g = parseInt(c1.substr(3,2),16), fc1b = parseInt(c1.substr(5,2),16);
+    let fc2r = parseInt(c2.substr(1,2),16), fc2g = parseInt(c2.substr(3,2),16), fc2b = parseInt(c2.substr(5,2),16);
+
+    for (let y = Math.floor(H / 2) + 1; y < H; y++) {
+        let rowDist = (H * 0.5) / (y - H / 2);
+        let shade = Math.min(1, 1.5 / (rowDist * 0.4 + 1));
+
+        let floorStepX = (Math.cos(player.angle + FOV/2) - Math.cos(player.angle - FOV/2)) * rowDist / W;
+        let floorStepY = (Math.sin(player.angle + FOV/2) - Math.sin(player.angle - FOV/2)) * rowDist / W;
+        let floorX = player.x + Math.cos(player.angle - FOV/2) * rowDist;
+        let floorY = player.y + Math.sin(player.angle - FOV/2) * rowDist;
+
+        // Draw floor in strips of 4 pixels for performance
+        for (let x = 0; x < W; x += 4) {
+            let cellX = Math.floor(floorX);
+            let cellY = Math.floor(floorY);
+            let checker = ((cellX + cellY) & 1) === 0;
+            let r, g, b;
+            if (checker) { r = fc2r; g = fc2g; b = fc2b; }
+            else { r = fc1r * 2; g = fc1g * 2; b = fc1b * 2; }
+            r = Math.floor(r * shade); g = Math.floor(g * shade); b = Math.floor(b * shade);
+            ctx.fillStyle = 'rgb(' + Math.min(255,r) + ',' + Math.min(255,g) + ',' + Math.min(255,b) + ')';
+            ctx.fillRect(x, y, 4, 1);
+            // Ceiling (darker, mirrored)
+            let cr = Math.floor(r * 0.4), cg = Math.floor(g * 0.4), cb = Math.floor(b * 0.4);
+            ctx.fillStyle = 'rgb(' + cr + ',' + cg + ',' + cb + ')';
+            ctx.fillRect(x, H - y, 4, 1);
+
+            floorX += floorStepX * 4;
+            floorY += floorStepY * 4;
+        }
+    }
+}
+
 // ─── Raycasting ──────────────────────────────────────────────────────
 function castRays() {
     let lvl = LEVELS[currentLevel];
     let tint = lvl.wallTint;
     const zBuf = new Float64Array(W);
+
+    // Render floor/ceiling first
+    renderFloorCeiling();
+
     for (let col = 0; col < W; col++) {
         let rayAngle = player.angle - FOV / 2 + (col / W) * FOV;
         let dirX = Math.cos(rayAngle), dirY = Math.sin(rayAngle);
@@ -1076,8 +1251,23 @@ function castRays() {
         else if (hitTile === 3) { r = Math.floor(shade * 0.2); g = Math.floor(shade * 0.3); b = Math.floor(shade * 0.9); }
         else { r = Math.floor(shade * tint[0]); g = Math.floor(shade * tint[1]); b = Math.floor(shade * tint[2]); }
         if (side === 1) { r = Math.floor(r * 0.65); g = Math.floor(g * 0.65); b = Math.floor(b * 0.65); }
-        ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+
+        // Wall gradient for depth — brighter at top, darker at bottom
+        let wallGrad = ctx.createLinearGradient(0, top, 0, top + wallH);
+        let topR = Math.min(255, r + 20), topG = Math.min(255, g + 10), topB = Math.min(255, b + 10);
+        let botR = Math.floor(r * 0.6), botG = Math.floor(g * 0.6), botB = Math.floor(b * 0.6);
+        wallGrad.addColorStop(0, 'rgb(' + topR + ',' + topG + ',' + topB + ')');
+        wallGrad.addColorStop(0.5, 'rgb(' + r + ',' + g + ',' + b + ')');
+        wallGrad.addColorStop(1, 'rgb(' + botR + ',' + botG + ',' + botB + ')');
+        ctx.fillStyle = wallGrad;
         ctx.fillRect(col, top, 1, wallH);
+
+        // Stair glow effect
+        if (hitTile === 2 || hitTile === 3) {
+            let glowA = Math.max(0, 0.2 - corrected * 0.03);
+            ctx.fillStyle = hitTile === 2 ? 'rgba(0,255,100,' + glowA + ')' : 'rgba(100,100,255,' + glowA + ')';
+            ctx.fillRect(col, top, 1, wallH);
+        }
     }
     return zBuf;
 }
@@ -1125,61 +1315,151 @@ function renderSprites(zBuf) {
                 let cb = parseInt(hex.substr(5, 2), 16) / 255;
                 rc = Math.floor(sh * cr * 1.5); gc = Math.floor(sh * cg * 1.5); bc = Math.floor(sh * cb * 1.5);
             }
-            ctx.fillStyle = 'rgb(' + Math.min(255, rc) + ',' + Math.min(255, gc) + ',' + Math.min(255, bc) + ')';
-            ctx.beginPath(); ctx.arc(screenX, H / 2 - size * 0.35, size * 0.1, 0, Math.PI * 2); ctx.fill();
+
+            // Ground shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(screenX, H / 2 + size * 0.38, size * 0.2, size * 0.04, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Idle sway for enemy sprite
+            let spriteSway = Math.sin(Date.now() * 0.003 + e.x * 10) * 2;
+
+            let bodyCol = 'rgb(' + Math.min(255, rc) + ',' + Math.min(255, gc) + ',' + Math.min(255, bc) + ')';
+            ctx.fillStyle = bodyCol;
+            // Head
+            ctx.beginPath(); ctx.arc(screenX + spriteSway * 0.5, H / 2 - size * 0.35, size * 0.1, 0, Math.PI * 2); ctx.fill();
+            // Eyes
+            ctx.fillStyle = '#000';
+            ctx.fillRect(screenX - size * 0.05 + spriteSway * 0.5, H / 2 - size * 0.37, size * 0.03, size * 0.02);
+            ctx.fillRect(screenX + size * 0.02 + spriteSway * 0.5, H / 2 - size * 0.37, size * 0.03, size * 0.02);
+            // Body
+            ctx.fillStyle = bodyCol;
             ctx.fillRect(screenX - size * 0.12, H / 2 - size * 0.25, size * 0.24, size * 0.35);
+            // Body shading
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            ctx.fillRect(screenX + size * 0.04, H / 2 - size * 0.25, size * 0.08, size * 0.35);
+            // Arms
+            ctx.fillStyle = bodyCol;
             ctx.fillRect(screenX - size * 0.22, H / 2 - size * 0.18, size * 0.08, size * 0.25);
             ctx.fillRect(screenX + size * 0.14, H / 2 - size * 0.18, size * 0.08, size * 0.25);
+            // Legs
             ctx.fillRect(screenX - size * 0.09, H / 2 + size * 0.1, size * 0.07, size * 0.28);
             ctx.fillRect(screenX + size * 0.02, H / 2 + size * 0.1, size * 0.07, size * 0.28);
+            // Shoes
+            ctx.fillStyle = '#222';
+            ctx.fillRect(screenX - size * 0.1, H / 2 + size * 0.36, size * 0.09, size * 0.04);
+            ctx.fillRect(screenX + size * 0.01, H / 2 + size * 0.36, size * 0.09, size * 0.04);
+            // Gloves
             ctx.fillStyle = vd ? vd.gloveColor : '#cc0000';
-            ctx.beginPath(); ctx.arc(screenX - size * 0.18, H / 2 + size * 0.07, size * 0.05, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(screenX + size * 0.18, H / 2 + size * 0.07, size * 0.05, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(screenX - size * 0.18 + spriteSway, H / 2 + size * 0.07, size * 0.05, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(screenX + size * 0.18 - spriteSway, H / 2 + size * 0.07, size * 0.05, 0, Math.PI * 2); ctx.fill();
+            // Health bar with gradient
             let bw = size * 0.4, bh = 4;
             let bx = screenX - bw / 2, by = H / 2 - size * 0.45;
             let pct = Math.max(0, e.health / e.maxHealth);
             ctx.fillStyle = '#220000'; ctx.fillRect(bx, by, bw, bh);
-            ctx.fillStyle = pct > 0.5 ? '#cc0000' : '#ff4400'; ctx.fillRect(bx, by, bw * pct, bh);
+            let hpGrad = ctx.createLinearGradient(bx, by, bx + bw * pct, by);
+            hpGrad.addColorStop(0, pct > 0.5 ? '#ff2200' : '#ff6600');
+            hpGrad.addColorStop(1, pct > 0.5 ? '#cc0000' : '#ff4400');
+            ctx.fillStyle = hpGrad; ctx.fillRect(bx, by, bw * pct, bh);
             ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
+            // Name label
+            if (item.dist < 5) {
+                ctx.fillStyle = 'rgba(255,0,0,0.8)'; ctx.font = 'bold ' + Math.max(8, Math.floor(12 / item.dist * 2)) + 'px Courier New';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText(e.name, screenX, by - 6);
+            }
         } else if (item.type === 'bag') {
-            // Punching bag sprite in 3D
+            // Punching bag sprite in 3D with swinging
             let e = item.data;
             let size = Math.min(H * 0.7, (1 / item.dist) * 200);
             let sh = Math.min(200, Math.floor(160 / (item.dist * 0.3 + 1)));
-            ctx.fillStyle = 'rgb(' + Math.min(255, Math.floor(sh * 0.5)) + ',' + Math.min(255, Math.floor(sh * 0.35)) + ',' + Math.min(255, Math.floor(sh * 0.2)) + ')';
-            // Chain
-            ctx.strokeStyle = '#888'; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.moveTo(screenX, H / 2 - size * 0.5); ctx.lineTo(screenX, H / 2 - size * 0.3); ctx.stroke();
-            // Bag body (rectangle + rounded top/bottom)
+            let bagR = Math.floor(sh * 0.5), bagG = Math.floor(sh * 0.35), bagB = Math.floor(sh * 0.2);
+
+            // Subtle swing
+            let swing = Math.sin(Date.now() * 0.002 + e.x * 5) * size * 0.01;
+
+            // Ground shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.beginPath();
+            ctx.ellipse(screenX, H / 2 + size * 0.15, size * 0.12, size * 0.025, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Chain with links
+            ctx.strokeStyle = '#aaa'; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(screenX, H / 2 - size * 0.5); ctx.lineTo(screenX + swing, H / 2 - size * 0.3); ctx.stroke();
+            // Chain links
+            for (let cl = 0; cl < 3; cl++) {
+                let clY = H / 2 - size * 0.5 + cl * size * 0.07;
+                ctx.strokeStyle = '#999'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.ellipse(screenX + swing * cl / 3, clY, 3, 4, 0, 0, Math.PI * 2); ctx.stroke();
+            }
+
+            // Bag body with gradient
             let bagW = size * 0.18, bagH = size * 0.4;
-            let bagX = screenX - bagW / 2, bagY = H / 2 - size * 0.3;
+            let bagX = screenX - bagW / 2 + swing, bagY = H / 2 - size * 0.3;
+            let bagGrad = ctx.createLinearGradient(bagX, bagY, bagX + bagW, bagY);
+            bagGrad.addColorStop(0, 'rgb(' + Math.min(255, bagR + 30) + ',' + Math.min(255, bagG + 20) + ',' + Math.min(255, bagB + 10) + ')');
+            bagGrad.addColorStop(0.6, 'rgb(' + Math.min(255, bagR) + ',' + Math.min(255, bagG) + ',' + Math.min(255, bagB) + ')');
+            bagGrad.addColorStop(1, 'rgb(' + Math.floor(bagR * 0.5) + ',' + Math.floor(bagG * 0.5) + ',' + Math.floor(bagB * 0.5) + ')');
+            ctx.fillStyle = bagGrad;
             ctx.fillRect(bagX, bagY, bagW, bagH);
-            ctx.beginPath(); ctx.ellipse(screenX, bagY, bagW / 2, bagW * 0.3, 0, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.ellipse(screenX, bagY + bagH, bagW / 2, bagW * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(screenX + swing, bagY, bagW / 2, bagW * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(screenX + swing, bagY + bagH, bagW / 2, bagW * 0.3, 0, 0, Math.PI * 2); ctx.fill();
             // Tape stripe
             ctx.fillStyle = 'rgb(' + Math.min(255, Math.floor(sh * 0.6)) + ',' + Math.min(255, Math.floor(sh * 0.45)) + ',' + Math.min(255, Math.floor(sh * 0.3)) + ')';
             ctx.fillRect(bagX + 2, bagY + bagH * 0.3, bagW - 4, bagH * 0.15);
+            // Brand circle
+            ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.arc(screenX + swing, bagY + bagH * 0.5, bagW * 0.3, 0, Math.PI * 2); ctx.stroke();
+            // Specular highlight
+            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.fillRect(bagX + 2, bagY + 2, bagW * 0.25, bagH - 4);
             // Health bar
             let hbw = size * 0.3, hbh = 3;
             let hbx = screenX - hbw / 2, hby = H / 2 - size * 0.55;
             let hpct = Math.max(0, e.health / e.maxHealth);
             ctx.fillStyle = '#332200'; ctx.fillRect(hbx, hby, hbw, hbh);
-            ctx.fillStyle = '#cc8800'; ctx.fillRect(hbx, hby, hbw * hpct, hbh);
+            let bagHpGrad = ctx.createLinearGradient(hbx, hby, hbx + hbw * hpct, hby);
+            bagHpGrad.addColorStop(0, '#ffaa00');
+            bagHpGrad.addColorStop(1, '#cc8800');
+            ctx.fillStyle = bagHpGrad; ctx.fillRect(hbx, hby, hbw * hpct, hbh);
             ctx.strokeStyle = '#886644'; ctx.lineWidth = 1; ctx.strokeRect(hbx, hby, hbw, hbh);
         } else {
-            // Bottle
+            // Bottle with bobbing glow
             let size = Math.min(H * 0.4, (1 / item.dist) * 80);
             let bx = screenX, by = H / 2 + size * 0.1;
+            let bobble = Math.sin(Date.now() * 0.004 + bx * 0.1) * size * 0.05;
+            by += bobble;
+
+            // Glow aura
+            ctx.fillStyle = 'rgba(68,255,68,0.08)';
+            ctx.beginPath(); ctx.arc(bx, by - size * 0.25, size * 0.5, 0, Math.PI * 2); ctx.fill();
+
+            // Bottle body
             ctx.fillStyle = '#117711';
             ctx.fillRect(bx - size * 0.08, by - size * 0.5, size * 0.16, size * 0.5);
+            // Neck
             ctx.fillStyle = '#0a5a0a';
             ctx.fillRect(bx - size * 0.04, by - size * 0.7, size * 0.08, size * 0.22);
+            // Cap
+            ctx.fillStyle = '#888888';
+            ctx.fillRect(bx - size * 0.035, by - size * 0.72, size * 0.07, size * 0.04);
+            // Label
             ctx.fillStyle = '#ffcc00';
             ctx.fillRect(bx - size * 0.07, by - size * 0.35, size * 0.14, size * 0.12);
+            // Label text line
+            ctx.fillStyle = '#886600';
+            ctx.fillRect(bx - size * 0.05, by - size * 0.3, size * 0.1, size * 0.02);
+            // Outline glow
             ctx.strokeStyle = '#44ff44'; ctx.lineWidth = 1;
-            ctx.shadowColor = '#44ff44'; ctx.shadowBlur = 8;
+            ctx.shadowColor = '#44ff44'; ctx.shadowBlur = 8 + Math.sin(Date.now() * 0.005) * 4;
             ctx.strokeRect(bx - size * 0.09, by - size * 0.72, size * 0.18, size * 0.74);
             ctx.shadowBlur = 0;
+            // Specular highlight
+            ctx.fillStyle = 'rgba(255,255,255,0.15)';
+            ctx.fillRect(bx - size * 0.02, by - size * 0.5, size * 0.03, size * 0.4);
         }
     }
 }
@@ -1188,22 +1468,39 @@ function renderSprites(zBuf) {
 function renderExploreArms() {
     let skin = getSkin(), glove = getGloves();
     let bobY = Math.sin(armBob) * 8;
-    let lx = 40, ly = H - 60 + bobY;
+    // Weapon sway based on mouse movement (subtle)
+    let swayX = Math.sin(Date.now() * 0.001) * 3;
+    let lx = 40 + swayX, ly = H - 60 + bobY;
+
+    // Left arm
     ctx.fillStyle = skin.armColor;
     ctx.beginPath(); ctx.ellipse(lx + 20, ly - 30, 28, 18, -0.3, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(lx + 10, ly + 10, 24, 16, 0.2, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = skin.highlight;
     ctx.beginPath(); ctx.ellipse(lx + 24, ly - 20, 14, 10, -0.3, 0, Math.PI * 2); ctx.fill();
+    // Glove with shine
     ctx.fillStyle = glove.color;
     ctx.beginPath(); ctx.arc(lx, ly + 32, 22, 0, Math.PI * 2); ctx.fill();
+    let gShineL = ctx.createRadialGradient(lx - 5, ly + 26, 2, lx, ly + 32, 22);
+    gShineL.addColorStop(0, 'rgba(255,255,255,0.3)');
+    gShineL.addColorStop(1, 'rgba(0,0,0,0.05)');
+    ctx.fillStyle = gShineL;
+    ctx.beginPath(); ctx.arc(lx, ly + 32, 22, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = glove.outline; ctx.lineWidth = 2; ctx.stroke();
-    let rx = W - 40, ry = H - 60 - bobY;
+
+    // Right arm
+    let rx = W - 40 - swayX, ry = H - 60 - bobY;
     ctx.fillStyle = skin.armColor;
     ctx.beginPath(); ctx.ellipse(rx - 20, ry - 30, 28, 18, 0.3, 0, Math.PI * 2); ctx.fill();
     ctx.beginPath(); ctx.ellipse(rx - 10, ry + 10, 24, 16, -0.2, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = skin.highlight;
     ctx.beginPath(); ctx.ellipse(rx - 24, ry - 20, 14, 10, 0.3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = glove.color;
+    ctx.beginPath(); ctx.arc(rx, ry + 32, 22, 0, Math.PI * 2); ctx.fill();
+    let gShineR = ctx.createRadialGradient(rx - 5, ry + 26, 2, rx, ry + 32, 22);
+    gShineR.addColorStop(0, 'rgba(255,255,255,0.3)');
+    gShineR.addColorStop(1, 'rgba(0,0,0,0.05)');
+    ctx.fillStyle = gShineR;
     ctx.beginPath(); ctx.arc(rx, ry + 32, 22, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = glove.outline; ctx.lineWidth = 2; ctx.stroke();
 }
@@ -1214,22 +1511,45 @@ function renderMinimap() {
     let sc = 5;
     let mw = MAP_W * sc, mh = MAP_H * sc;
     let mx = W - mw - 10, my = 10;
-    ctx.globalAlpha = 0.45;
-    ctx.fillStyle = '#000'; ctx.fillRect(mx - 1, my - 1, mw + 2, mh + 2);
+    ctx.globalAlpha = 0.55;
+
+    // Minimap border with glow
+    ctx.fillStyle = '#000'; ctx.fillRect(mx - 2, my - 2, mw + 4, mh + 4);
+    ctx.strokeStyle = 'rgba(255,0,0,0.4)'; ctx.lineWidth = 1;
+    ctx.strokeRect(mx - 2, my - 2, mw + 4, mh + 4);
+
     for (let r = 0; r < MAP_H; r++)
         for (let c = 0; c < MAP_W; c++) {
             let t = currentMap[r][c];
             ctx.fillStyle = t === 0 ? '#110000' : t === 2 ? '#003300' : t === 3 ? '#000033' : '#440000';
             ctx.fillRect(mx + c * sc, my + r * sc, sc, sc);
         }
-    ctx.fillStyle = '#ff0000';
+
+    // Enemies with pulsing
+    let pulse = 0.7 + Math.sin(Date.now() * 0.005) * 0.3;
+    ctx.fillStyle = 'rgba(255,0,0,' + pulse + ')';
     for (let e of enemies) { if (e.alive && !e.isBag) ctx.fillRect(mx + e.x * sc - 2, my + e.y * sc - 2, 4, 4); }
     ctx.fillStyle = '#cc8800';
     for (let e of enemies) { if (e.alive && e.isBag) ctx.fillRect(mx + e.x * sc - 2, my + e.y * sc - 2, 4, 4); }
     ctx.fillStyle = '#44ff44';
     for (let b of bottles) if (!b.picked) ctx.fillRect(mx + b.x * sc - 1, my + b.y * sc - 1, 3, 3);
+
+    // Player with glow
     ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 4;
     ctx.fillRect(mx + player.x * sc - 2, my + player.y * sc - 2, 4, 4);
+    ctx.shadowBlur = 0;
+
+    // FOV cone
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(mx + player.x * sc, my + player.y * sc);
+    ctx.lineTo(mx + (player.x + Math.cos(player.angle - FOV / 4) * 2.5) * sc, my + (player.y + Math.sin(player.angle - FOV / 4) * 2.5) * sc);
+    ctx.moveTo(mx + player.x * sc, my + player.y * sc);
+    ctx.lineTo(mx + (player.x + Math.cos(player.angle + FOV / 4) * 2.5) * sc, my + (player.y + Math.sin(player.angle + FOV / 4) * 2.5) * sc);
+    ctx.stroke();
+
+    // Direction line
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(mx + player.x * sc, my + player.y * sc);
@@ -1238,15 +1558,61 @@ function renderMinimap() {
     ctx.globalAlpha = 1;
 }
 
-// ─── Health Bar ──────────────────────────────────────────────────────
-function drawBar(x, y, w, h, val, max, label) {
+// ─── Health Bar (smooth animated) ──────────────────────────────────────────────
+function drawBar(x, y, w, h, val, max, label, smoothVal) {
     let pct = Math.max(0, val / max);
+    let smoothPct = smoothVal !== undefined ? Math.max(0, smoothVal / max) : pct;
+
+    // Background
     ctx.fillStyle = '#220000'; ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = pct > 0.5 ? '#cc0000' : pct > 0.25 ? '#ff4400' : '#ff0000';
+
+    // Delayed damage indicator (white bar that shrinks slower)
+    if (smoothPct > pct) {
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.fillRect(x, y, w * smoothPct, h);
+    }
+
+    // Main health bar with gradient
+    let barGrad = ctx.createLinearGradient(x, y, x, y + h);
+    if (pct > 0.5) {
+        barGrad.addColorStop(0, '#ff2222');
+        barGrad.addColorStop(0.5, '#cc0000');
+        barGrad.addColorStop(1, '#880000');
+    } else if (pct > 0.25) {
+        barGrad.addColorStop(0, '#ff6622');
+        barGrad.addColorStop(0.5, '#ff4400');
+        barGrad.addColorStop(1, '#aa2200');
+    } else {
+        barGrad.addColorStop(0, '#ff4444');
+        barGrad.addColorStop(0.5, '#ff0000');
+        barGrad.addColorStop(1, '#aa0000');
+    }
+    ctx.fillStyle = barGrad;
     ctx.fillRect(x, y, w * pct, h);
+
+    // Shine on top
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(x, y, w * pct, h * 0.4);
+
+    // Low health pulse
+    if (pct < 0.25 && pct > 0) {
+        let pulse = 0.1 + Math.sin(Date.now() * 0.008) * 0.1;
+        ctx.fillStyle = 'rgba(255,0,0,' + pulse + ')';
+        ctx.fillRect(x, y, w * pct, h);
+    }
+
     ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+
+    // Tick marks
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    for (let t = 0.25; t < 1; t += 0.25) {
+        ctx.fillRect(x + w * t - 0.5, y, 1, h);
+    }
+
     ctx.fillStyle = '#ffffff'; ctx.font = '13px Courier New'; ctx.textAlign = 'left';
+    ctx.shadowColor = '#000'; ctx.shadowBlur = 3;
     ctx.fillText(label + ': ' + Math.ceil(Math.max(0, val)) + '/' + max, x, y - 4);
+    ctx.shadowBlur = 0;
 }
 
 // ─── XP Bar ──────────────────────────────────────────────────────────
@@ -1271,13 +1637,24 @@ function drawXPBar(x, y, w, h) {
 // ─── Explore HUD ─────────────────────────────────────────────────────
 let statsOpen = false;
 function renderExploreHUD() {
-    // Health bar at bottom-left (always visible)
+    // Health bar at bottom-left (always visible, with smooth animation)
     drawBar(10, H - 30, 200, 18, player.health, player.maxHealth, 'HP');
 
-    // Floor title at top-center
+    // XP bar below health
+    drawXPBar(10, H - 50, 200, 8);
+
+    // Floor title at top-center with decorative style
     let lvl = LEVELS[currentLevel];
+    let t = Date.now() * 0.001;
     ctx.fillStyle = '#ff4444'; ctx.font = 'bold 16px Courier New'; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 6;
     ctx.fillText('FLOOR ' + lvl.floor + ': ' + lvl.name, W / 2, 20);
+    ctx.shadowBlur = 0;
+
+    // Decorative line under title
+    let titleW = ctx.measureText('FLOOR ' + lvl.floor + ': ' + lvl.name).width;
+    ctx.strokeStyle = 'rgba(255,0,0,0.3)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(W/2 - titleW/2, 26); ctx.lineTo(W/2 + titleW/2, 26); ctx.stroke();
 
     // ─── Stats toggle button (top-left) ───
     let sbW = 80, sbH = 28, sbX = 10, sbY = 10;
@@ -1359,12 +1736,40 @@ function applyDrunkEffects() {
 // ─── Proximity Warning ──────────────────────────────────────────────
 function renderProximity() {
     let minD = Infinity;
-    for (let e of enemies) { if (!e.alive) continue; let d = Math.hypot(e.x - player.x, e.y - player.y); if (d < minD) minD = d; }
-    if (minD < 5) { ctx.fillStyle = 'rgba(255,0,0,' + (Math.max(0, 1 - minD / 5) * 0.18) + ')'; ctx.fillRect(0, 0, W, H); }
-    if (minD < 3) {
-        let nearBag = enemies.some(e => e.alive && e.isBag && Math.hypot(e.x - player.x, e.y - player.y) < 3);
-        ctx.fillStyle = nearBag ? '#cc8800' : '#ff0000'; ctx.font = '18px Courier New'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.fillText(nearBag ? '! PUNCHING BAG !' : '! ENEMY NEARBY !', W / 2, H - 10); ctx.textBaseline = 'alphabetic';
+    let nearestEnemy = null;
+    for (let e of enemies) {
+        if (!e.alive) continue;
+        let d = Math.hypot(e.x - player.x, e.y - player.y);
+        if (d < minD) { minD = d; nearestEnemy = e; }
+    }
+    if (minD < 5) {
+        // Pulsing red edge warning
+        let intensity = Math.max(0, 1 - minD / 5);
+        let pulse = intensity * (0.12 + Math.sin(Date.now() * 0.006) * 0.06);
+        let warnGrad = ctx.createRadialGradient(W/2, H/2, H*0.25, W/2, H/2, W*0.55);
+        warnGrad.addColorStop(0, 'rgba(255,0,0,0)');
+        warnGrad.addColorStop(1, 'rgba(255,0,0,' + pulse + ')');
+        ctx.fillStyle = warnGrad; ctx.fillRect(0, 0, W, H);
+    }
+    if (minD < 3 && nearestEnemy) {
+        let nearBag = nearestEnemy.isBag;
+        let warnColor = nearBag ? '#cc8800' : '#ff0000';
+        let warnText = nearBag ? '! PUNCHING BAG !' : '! ' + nearestEnemy.name.toUpperCase() + ' NEARBY !';
+
+        // Warning box
+        let boxW = ctx.measureText(warnText).width + 40;
+        ctx.font = 'bold 18px Courier New';
+        boxW = ctx.measureText(warnText).width + 40;
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(W/2 - boxW/2, H - 36, boxW, 28);
+        ctx.strokeStyle = warnColor; ctx.lineWidth = 1;
+        ctx.strokeRect(W/2 - boxW/2, H - 36, boxW, 28);
+
+        ctx.fillStyle = warnColor; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = warnColor; ctx.shadowBlur = 8;
+        ctx.fillText(warnText, W / 2, H - 22);
+        ctx.shadowBlur = 0;
+        ctx.textBaseline = 'alphabetic';
     }
 }
 
@@ -1373,31 +1778,100 @@ function renderCombatScene() {
     let grd = ctx.createRadialGradient(W / 2, H / 2, 50, W / 2, H / 2, W);
     grd.addColorStop(0, '#1a0000'); grd.addColorStop(1, '#000000');
     ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = '#660000'; ctx.lineWidth = 3;
-    for (let i = 0; i < 3; i++) { let ry = 40 + i * 30; ctx.beginPath(); ctx.moveTo(0, ry); ctx.lineTo(W, ry); ctx.stroke(); }
+
+    // Animated rope lines with subtle movement
+    let t = Date.now() * 0.001;
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 3; i++) {
+        let ry = 40 + i * 30;
+        let wave = Math.sin(t * 0.5 + i) * 2;
+        ctx.strokeStyle = i === 0 ? '#880000' : '#660000';
+        ctx.beginPath();
+        ctx.moveTo(0, ry + wave);
+        for (let x = 0; x <= W; x += 20) {
+            ctx.lineTo(x, ry + Math.sin(t + x * 0.01 + i) * 1.5 + wave);
+        }
+        ctx.stroke();
+    }
+
+    // Bottom ropes
     ctx.strokeStyle = '#440000';
     for (let i = 0; i < 3; i++) { let ry = H - 40 - i * 20; ctx.beginPath(); ctx.moveTo(0, ry); ctx.lineTo(W, ry); ctx.stroke(); }
-    ctx.fillStyle = '#110000'; ctx.fillRect(0, H * 0.6, W, H * 0.4);
 
+    // Ring floor with subtle pattern
+    let floorGrad = ctx.createLinearGradient(0, H * 0.6, 0, H);
+    floorGrad.addColorStop(0, '#110000');
+    floorGrad.addColorStop(0.5, '#0a0000');
+    floorGrad.addColorStop(1, '#050000');
+    ctx.fillStyle = floorGrad; ctx.fillRect(0, H * 0.6, W, H * 0.4);
+    // Floor grid lines
+    ctx.strokeStyle = 'rgba(255,0,0,0.03)'; ctx.lineWidth = 1;
+    for (let fx = 0; fx < W; fx += 40) {
+        ctx.beginPath(); ctx.moveTo(fx, H * 0.6); ctx.lineTo(fx, H); ctx.stroke();
+    }
+    for (let fy = H * 0.6; fy < H; fy += 20) {
+        ctx.beginPath(); ctx.moveTo(0, fy); ctx.lineTo(W, fy); ctx.stroke();
+    }
+
+    // Camera tilt for dodges
     ctx.save();
+    if (cameraTilt !== 0) {
+        ctx.translate(W / 2, H / 2);
+        ctx.rotate(cameraTilt * 0.02);
+        ctx.translate(-W / 2, -H / 2);
+    }
+
     if (combat.shake > 0 && settings.screenShake) {
         ctx.translate((Math.random() - 0.5) * combat.shake, (Math.random() - 0.5) * combat.shake);
     }
+
+    // Screen warp effect on big hits
+    if (screenWarp > 0) {
+        let warpAmount = screenWarp * 0.003;
+        ctx.save();
+        ctx.translate(W/2, H/2);
+        ctx.scale(1 + warpAmount, 1 + warpAmount);
+        ctx.translate(-W/2, -H/2);
+    }
+
     drawOpponent();
+
+    if (screenWarp > 0) ctx.restore();
+
     ctx.restore();
     drawPlayerFists();
 
     let en = combat.enemy;
-    // Enemy/Bag health bar
+    // Enemy/Bag health bar (smooth animated)
     if (en.isBag) {
-        drawBar(W / 2 + 40, 12, 250, 16, en.health, en.maxHealth, 'PUNCHING BAG');
+        drawBar(W / 2 + 40, 12, 250, 16, en.health, en.maxHealth, 'PUNCHING BAG', smoothEnemyHP);
     } else {
-        drawBar(W / 2 + 40, 12, 250, 16, en.health, en.maxHealth, en.name);
+        drawBar(W / 2 + 40, 12, 250, 16, en.health, en.maxHealth, en.name, smoothEnemyHP);
     }
-    drawBar(W / 2 - 290, 12, 250, 16, player.health, player.maxHealth, 'YOU');
+    drawBar(W / 2 - 290, 12, 250, 16, player.health, player.maxHealth, 'YOU', smoothPlayerHP);
 
     // XP Bar
     drawXPBar(W / 2 - 100, 36, 200, 10);
+
+    // Combo counter display
+    if (comboCount >= 2) {
+        let comboAlpha = Math.min(1, comboTimer / 400);
+        let comboScale = 1 + Math.sin(Date.now() * 0.01) * 0.05;
+        let comboSize = Math.min(48, 24 + comboCount * 4);
+        ctx.save();
+        ctx.translate(W - 90, 80);
+        ctx.scale(comboScale, comboScale);
+        ctx.fillStyle = 'rgba(255,200,0,' + comboAlpha + ')';
+        ctx.font = 'bold ' + comboSize + 'px Courier New';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 15;
+        ctx.fillText(comboCount + 'x', 0, 0);
+        ctx.font = 'bold 14px Courier New';
+        ctx.fillStyle = 'rgba(255,150,0,' + comboAlpha + ')';
+        ctx.fillText('COMBO', 0, 22);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
 
     // Top-right info
     ctx.fillStyle = '#ffffff'; ctx.font = 'bold 13px Courier New'; ctx.textAlign = 'right';
@@ -1409,22 +1883,82 @@ function renderCombatScene() {
     ctx.fillStyle = '#ff6666'; ctx.font = '12px Courier New'; ctx.textAlign = 'center';
     ctx.fillText('Floor ' + LEVELS[currentLevel].floor, W / 2, 58);
 
-    if (combat.hitFlash > 0) { ctx.fillStyle = 'rgba(255,0,0,' + (combat.hitFlash / 300) + ')'; ctx.fillRect(0, 0, W, H); }
+    // Hit flash (improved with color grading)
+    if (combat.hitFlash > 0) {
+        let flashAlpha = combat.hitFlash / 300;
+        ctx.fillStyle = 'rgba(255,0,0,' + (flashAlpha * 0.4) + ')';
+        ctx.fillRect(0, 0, W, H);
+        // Edge vignette flash
+        let edgeGrad = ctx.createRadialGradient(W/2, H/2, H*0.2, W/2, H/2, W*0.6);
+        edgeGrad.addColorStop(0, 'rgba(255,0,0,0)');
+        edgeGrad.addColorStop(1, 'rgba(200,0,0,' + (flashAlpha * 0.5) + ')');
+        ctx.fillStyle = edgeGrad; ctx.fillRect(0, 0, W, H);
+    }
+
+    // Blood overlay (persists briefly after taking damage)
+    if (bloodOverlay > 0) {
+        let bAlpha = Math.min(0.3, bloodOverlay * 0.001);
+        // Blood drip streaks from top
+        for (let drip of bloodDrips) {
+            ctx.fillStyle = 'rgba(160,0,0,' + (bAlpha * drip.alpha) + ')';
+            ctx.fillRect(drip.x, 0, drip.w, drip.y);
+            // Drip tip
+            ctx.beginPath();
+            ctx.arc(drip.x + drip.w / 2, drip.y, drip.w * 0.8, 0, Math.PI); ctx.fill();
+        }
+    }
+
+    // Combat message with improved styling
     if (combat.msgTimer > 0) {
-        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 32px Courier New';
+        let msgAlpha = Math.min(1, combat.msgTimer / 200);
+        let msgScale = 1 + (1 - Math.min(1, combat.msgTimer / 300)) * 0.3;
+        ctx.save();
+        ctx.translate(W / 2, H * 0.68);
+        ctx.scale(msgScale, msgScale);
+        ctx.fillStyle = 'rgba(255,255,255,' + msgAlpha + ')';
+        ctx.font = 'bold 32px Courier New';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 15;
-        ctx.fillText(combat.msg, W / 2, H * 0.7);
-        ctx.shadowBlur = 0; ctx.textBaseline = 'alphabetic';
+        ctx.fillText(combat.msg, 0, 0);
+        // Outline
+        ctx.strokeStyle = 'rgba(200,0,0,' + (msgAlpha * 0.6) + ')';
+        ctx.lineWidth = 2;
+        ctx.strokeText(combat.msg, 0, 0);
+        ctx.shadowBlur = 0;
+        ctx.restore();
     }
-    if (combat.blocking && !en.isBag) { ctx.fillStyle = '#ff4444'; ctx.font = '20px Courier New'; ctx.textAlign = 'center'; ctx.fillText('BLOCKING', W / 2, H - 42); }
+    if (combat.blocking && !en.isBag) {
+        // Shield effect
+        ctx.fillStyle = 'rgba(100,150,255,0.08)'; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#6688ff'; ctx.font = 'bold 20px Courier New'; ctx.textAlign = 'center';
+        ctx.shadowColor = '#4466ff'; ctx.shadowBlur = 10;
+        ctx.fillText('\u2588 BLOCKING \u2588', W / 2, H - 42);
+        ctx.shadowBlur = 0;
+    }
     if (combat.dodging && !en.isBag) {
         ctx.fillStyle = '#ff8800'; ctx.font = 'bold 18px Courier New'; ctx.textAlign = 'center';
-        ctx.fillText(combat.dodgeDir === -1 ? '<<< DODGE' : combat.dodgeDir === 1 ? 'DODGE >>>' : 'SLIP BACK', W / 2, H - 60);
+        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 8;
+        ctx.fillText(combat.dodgeDir === -1 ? '\u25C0\u25C0\u25C0 DODGE' : combat.dodgeDir === 1 ? 'DODGE \u25B6\u25B6\u25B6' : 'SLIP BACK', W / 2, H - 60);
+        ctx.shadowBlur = 0;
     }
+
+    // Speed lines
+    renderSpeedLines();
+
+    // Impact rings
+    renderImpactRings();
+
+    // Damage numbers
+    renderDamageNumbers();
 
     renderParticles();
     applyDrunkEffects();
+
+    // Slow-mo effect overlay
+    if (slowMoTimer > 0) {
+        ctx.fillStyle = 'rgba(0,0,30,' + Math.min(0.15, slowMoTimer * 0.0003) + ')';
+        ctx.fillRect(0, 0, W, H);
+    }
 
     // ─── Clickable Combat Buttons ───────────────────────────────────
     let layout = getCombatBtnLayout(en);
@@ -1488,10 +2022,80 @@ function drawUIButton(x, y, w, h, label, bgColor, borderColor, textColor) {
     // Highlight top edge
     ctx.fillStyle = 'rgba(255,255,255,0.08)';
     ctx.fillRect(x + 1, y + 1, w - 2, h * 0.35);
+    // Inner shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.fillRect(x + 1, y + h * 0.7, w - 2, h * 0.3 - 1);
     // Label
     ctx.fillStyle = textColor; ctx.font = 'bold 14px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 2;
     ctx.fillText(label, x + w / 2, y + h / 2);
+    ctx.shadowBlur = 0;
+}
+
+// ─── Render Damage Numbers ───────────────────────────────────────────
+function renderDamageNumbers() {
+    for (let dn of damageNumbers) {
+        let a = Math.min(1, dn.life / 300);
+        let progress = 1 - dn.life / dn.max;
+        ctx.save();
+        ctx.translate(dn.x, dn.y);
+        ctx.rotate(dn.rot * progress);
+        ctx.scale(dn.scale, dn.scale);
+        ctx.globalAlpha = a;
+        ctx.font = 'bold 22px Courier New';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillText(dn.text, 2, 2);
+        // Main text
+        ctx.fillStyle = dn.color;
+        ctx.shadowColor = dn.color; ctx.shadowBlur = 8;
+        ctx.fillText(dn.text, 0, 0);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
+}
+
+// ─── Render Speed Lines ──────────────────────────────────────────────
+function renderSpeedLines() {
+    for (let sl of speedLines) {
+        let a = Math.min(1, sl.life / 100);
+        ctx.globalAlpha = a * 0.6;
+        ctx.strokeStyle = sl.color;
+        ctx.lineWidth = sl.width;
+        ctx.beginPath();
+        ctx.moveTo(sl.x, sl.y);
+        ctx.lineTo(sl.x + Math.cos(sl.angle) * sl.len, sl.y + Math.sin(sl.angle) * sl.len);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+}
+
+// ─── Render Impact Rings ────────────────────────────────────────────
+function renderImpactRings() {
+    for (let ring of impactRings) {
+        let a = ring.life / ring.max;
+        let progress = 1 - a;
+        ctx.globalAlpha = a * 0.6;
+        ctx.strokeStyle = ring.color;
+        ctx.lineWidth = 3 * a;
+        ctx.beginPath();
+        ctx.arc(ring.x, ring.y, ring.r + progress * ring.maxR, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+}
+
+// ─── Render Ambient Dust ────────────────────────────────────────────
+function renderDust() {
+    for (let d of dustParticles) {
+        ctx.globalAlpha = d.alpha;
+        ctx.fillStyle = '#aa8866';
+        ctx.beginPath(); ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
 }
 
 // ─── Draw Opponent ───────────────────────────────────────────────────
@@ -1509,14 +2113,33 @@ function drawOpponent() {
     let headR = vd.headSize || 28;
     let bw = vd.bodyW || 80, bh = vd.bodyH || 85;
 
-    // Shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.beginPath(); ctx.ellipse(cx, H * 0.58, bw * 0.9, 12, 0, 0, Math.PI * 2); ctx.fill();
-    // Legs
+    // Idle breathing sway
+    let breathe = Math.sin(Date.now() * 0.003) * 2;
+    cy += breathe;
+    let sway = Math.sin(Date.now() * 0.0015) * 3;
+    cx += sway;
+
+    // Stagger animation when hit
+    if (flash) {
+        let stagger = combat.enemyHitFlash / 220;
+        cx += Math.sin(Date.now() * 0.05) * stagger * 15;
+        cy += stagger * 5;
+    }
+
+    // Shadow (dynamic with sway)
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(cx, H * 0.58, bw * 0.9 + breathe, 12, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Legs with subtle animation
     ctx.fillStyle = bodyC;
     let legSpread = bw * 0.2;
-    ctx.fillRect(cx - legSpread - 10, cy + bh, 22, 60);
-    ctx.fillRect(cx + legSpread - 10, cy + bh, 22, 60);
+    let legBob = Math.sin(Date.now() * 0.004) * 1.5;
+    ctx.fillRect(cx - legSpread - 10, cy + bh + legBob, 22, 60);
+    ctx.fillRect(cx + legSpread - 10, cy + bh - legBob, 22, 60);
+    // Shoes
+    ctx.fillStyle = '#111111';
+    ctx.fillRect(cx - legSpread - 14, cy + bh + 55 + legBob, 30, 8);
+    ctx.fillRect(cx + legSpread - 14, cy + bh + 55 - legBob, 30, 8);
     // Body
     ctx.fillRect(cx - bw / 2, cy + 5, bw, bh);
     // Head — may lunge forward for bite/headbutt
@@ -1741,6 +2364,27 @@ function drawPlayerFists() {
         }
     }
 
+    // Idle breathing bob
+    if (!combat.attacking && !combat.blocking && !combat.dodging) {
+        let breathL = Math.sin(Date.now() * 0.0025) * 4;
+        let breathR = Math.sin(Date.now() * 0.0025 + 0.6) * 4;
+        ly += breathL; ry += breathR;
+        lx += Math.sin(Date.now() * 0.002) * 1.5;
+        rx += Math.sin(Date.now() * 0.002 + 1) * 1.5;
+    }
+
+    // Motion blur trail on attack
+    if (combat.attacking) {
+        ctx.globalAlpha = 0.12;
+        for (let t = 1; t <= 3; t++) {
+            let trailOff = t * 8;
+            ctx.fillStyle = glove.color;
+            ctx.beginPath(); ctx.arc(lx - trailOff * 0.3, ly + trailOff, 30, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(rx + trailOff * 0.3, ry + trailOff, 30, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+    }
+
     // Left arm
     ctx.fillStyle = skin.armColor;
     ctx.beginPath(); ctx.ellipse(lx + 8, ly - 20, 32, 20, -0.4, 0, Math.PI * 2); ctx.fill();
@@ -1748,11 +2392,22 @@ function drawPlayerFists() {
     ctx.beginPath(); ctx.ellipse(lx + 14, ly - 24, 16, 10, -0.4, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = skin.armColor;
     ctx.fillRect(lx - 18, ly, 36, H - ly + 10);
+    // Glove with shine
     ctx.fillStyle = glove.color;
+    ctx.beginPath(); ctx.arc(lx, ly, 36, 0, Math.PI * 2); ctx.fill();
+    // Glove specular highlight
+    let gloveGrad = ctx.createRadialGradient(lx - 8, ly - 12, 2, lx, ly, 36);
+    gloveGrad.addColorStop(0, 'rgba(255,255,255,0.35)');
+    gloveGrad.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+    gloveGrad.addColorStop(1, 'rgba(0,0,0,0.1)');
+    ctx.fillStyle = gloveGrad;
     ctx.beginPath(); ctx.arc(lx, ly, 36, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = glove.outline; ctx.lineWidth = 3; ctx.stroke();
     ctx.fillStyle = glove.outline;
     for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(lx + i * 10, ly - 14, 5, 0, Math.PI * 2); ctx.fill(); }
+    // Glove stitching
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(lx - 12, ly + 8); ctx.lineTo(lx + 12, ly + 8); ctx.stroke();
 
     // Right arm
     ctx.fillStyle = skin.armColor;
@@ -1761,11 +2416,21 @@ function drawPlayerFists() {
     ctx.beginPath(); ctx.ellipse(rx - 14, ry - 24, 16, 10, 0.4, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = skin.armColor;
     ctx.fillRect(rx - 18, ry, 36, H - ry + 10);
+    // Glove with shine
     ctx.fillStyle = glove.color;
+    ctx.beginPath(); ctx.arc(rx, ry, 36, 0, Math.PI * 2); ctx.fill();
+    let gloveGrad2 = ctx.createRadialGradient(rx - 8, ry - 12, 2, rx, ry, 36);
+    gloveGrad2.addColorStop(0, 'rgba(255,255,255,0.35)');
+    gloveGrad2.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+    gloveGrad2.addColorStop(1, 'rgba(0,0,0,0.1)');
+    ctx.fillStyle = gloveGrad2;
     ctx.beginPath(); ctx.arc(rx, ry, 36, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = glove.outline; ctx.lineWidth = 3; ctx.stroke();
     ctx.fillStyle = glove.outline;
     for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(rx + i * 10, ry - 14, 5, 0, Math.PI * 2); ctx.fill(); }
+    // Glove stitching
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(rx - 12, ry + 8); ctx.lineTo(rx + 12, ry + 8); ctx.stroke();
 
     ctx.shadowBlur = 0;
 }
@@ -1813,49 +2478,131 @@ function updateCutscene(dt) {
 }
 
 function renderCutscene() {
+    // Dark background with subtle animated noise
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    let t = Date.now() * 0.001;
+
+    // Subtle red fog at bottom
+    let fogGrad = ctx.createLinearGradient(0, H * 0.5, 0, H);
+    fogGrad.addColorStop(0, 'rgba(80,0,0,0)');
+    fogGrad.addColorStop(1, 'rgba(40,0,0,0.3)');
+    ctx.fillStyle = fogGrad; ctx.fillRect(0, 0, W, H);
+
+    // Spotlight on villain
+    let spotGrad = ctx.createRadialGradient(W/2, H*0.3, 20, W/2, H*0.3, 200);
+    spotGrad.addColorStop(0, 'rgba(120,20,20,0.15)');
+    spotGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = spotGrad; ctx.fillRect(0, 0, W, H);
+
     let en = combat.enemy;
     let vd = VILLAIN_DATA[en.name] || {};
     let cx = W / 2, cy = H * 0.28;
     let headR = (vd.headSize || 28) * 1.4;
     let bw = (vd.bodyW || 80) * 1.1, bh = (vd.bodyH || 85);
-    ctx.fillStyle = vd.bodyColor || '#552222';
+
+    // Idle sway
+    let sway = Math.sin(t * 1.5) * 3;
+    cx += sway;
+
+    // Body with gradient
+    let bodyGrad = ctx.createLinearGradient(cx - bw/2, cy + 15, cx + bw/2, cy + 15 + bh);
+    bodyGrad.addColorStop(0, vd.bodyColor || '#552222');
+    bodyGrad.addColorStop(1, vd.bodyColor ? darkenColor(vd.bodyColor, 0.6) : '#331111');
+    ctx.fillStyle = bodyGrad;
     ctx.fillRect(cx - bw / 2, cy + 15, bw, bh);
+    // Body outline
+    ctx.strokeStyle = 'rgba(255,0,0,0.15)'; ctx.lineWidth = 1;
+    ctx.strokeRect(cx - bw / 2, cy + 15, bw, bh);
+
+    // Head with subtle gradient
     ctx.fillStyle = vd.skinColor || '#884444';
     ctx.beginPath(); ctx.arc(cx, cy - headR + 20, headR, 0, Math.PI * 2); ctx.fill();
+    // Head outline glow
+    ctx.strokeStyle = 'rgba(255,60,60,0.2)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy - headR + 20, headR, 0, Math.PI * 2); ctx.stroke();
+
+    // Eyes with glow
     ctx.fillStyle = '#000';
     ctx.fillRect(cx - headR * 0.35, cy - headR + 14, headR * 0.2, headR * 0.15);
     ctx.fillRect(cx + headR * 0.15, cy - headR + 14, headR * 0.2, headR * 0.15);
+    // Eye glint
+    ctx.fillStyle = 'rgba(255,50,50,0.5)';
+    ctx.fillRect(cx - headR * 0.3, cy - headR + 15, headR * 0.06, headR * 0.06);
+    ctx.fillRect(cx + headR * 0.2, cy - headR + 15, headR * 0.06, headR * 0.06);
+
     if (vd.style === 'boss') {
+        // Crown with sparkle
         ctx.fillStyle = '#ffcc00'; ctx.fillRect(cx - headR, cy - headR * 2 + 20, headR * 2, 8);
         ctx.fillStyle = '#ff0000'; ctx.beginPath(); ctx.arc(cx, cy - headR * 2 + 24, 5, 0, Math.PI * 2); ctx.fill();
+        // Crown sparkle
+        let sparkle = Math.sin(t * 6) * 0.5 + 0.5;
+        ctx.fillStyle = 'rgba(255,255,200,' + sparkle * 0.6 + ')';
+        ctx.beginPath(); ctx.arc(cx - headR * 0.5, cy - headR * 2 + 22, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(cx + headR * 0.5, cy - headR * 2 + 22, 3, 0, Math.PI * 2); ctx.fill();
     }
     if (vd.style === 'wild') { ctx.strokeStyle = '#ccc'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx - bw / 2 - 8, cy + 30); ctx.lineTo(cx - bw / 2 + 8, cy + 50); ctx.stroke(); }
     if (vd.style === 'brawler') { ctx.strokeStyle = '#660000'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx - 20, cy + 25); ctx.lineTo(cx + 20, cy + 55); ctx.stroke(); }
+
+    // Gloves with glow
     ctx.fillStyle = vd.gloveColor || '#cc0000';
-    ctx.beginPath(); ctx.arc(cx - bw / 2 - 15, cy + bh * 0.5, 16, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(cx + bw / 2 + 15, cy + bh * 0.5, 16, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = vd.gloveColor || '#cc0000'; ctx.shadowBlur = 6;
+    ctx.beginPath(); ctx.arc(cx - bw / 2 - 15 + Math.sin(t * 2) * 3, cy + bh * 0.5, 16, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx + bw / 2 + 15 + Math.sin(t * 2 + 1) * 3, cy + bh * 0.5, 16, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Name with dramatic reveal
     ctx.fillStyle = '#ff0000'; ctx.font = 'bold 28px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 15;
-    ctx.fillText(en.name, cx, cy + bh + 40); ctx.shadowBlur = 0;
+    ctx.fillText(en.name, cx, cy + bh + 40);
+    // Name underline
+    let nameW = ctx.measureText(en.name).width;
+    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - nameW/2, cy + bh + 52); ctx.lineTo(cx + nameW/2, cy + bh + 52); ctx.stroke();
+    ctx.shadowBlur = 0;
+
     ctx.fillStyle = '#cc6600'; ctx.font = '14px Courier New';
     let labels = { speedster: 'SPEED FIGHTER', counter: 'COUNTER SPECIALIST', brawler: 'HEAVY HITTER', wild: 'WILD BRAWLER', boss: 'THE FINAL BOSS' };
-    ctx.fillText(labels[vd.style] || '', cx, cy + bh + 58);
+    ctx.fillText(labels[vd.style] || '', cx, cy + bh + 66);
     ctx.fillStyle = '#884444'; ctx.font = '12px Courier New';
-    ctx.fillText('Floor ' + LEVELS[currentLevel].floor, cx, cy + bh + 74);
-    ctx.fillStyle = 'rgba(30,0,0,0.92)'; ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 3;
+    ctx.fillText('Floor ' + LEVELS[currentLevel].floor, cx, cy + bh + 82);
+
+    // Stats display
+    ctx.fillStyle = '#885555'; ctx.font = '11px Courier New';
+    ctx.fillText('HP: ' + en.maxHealth + '  |  STR: ' + Math.round(en.damage * 10), cx, cy + bh + 96);
+
+    // Dialogue box with better styling
     let bx2 = 60, by2 = H - 130, bww = W - 120, bhh = 100;
-    ctx.fillRect(bx2, by2, bww, bhh); ctx.strokeRect(bx2, by2, bww, bhh);
-    ctx.fillStyle = '#ffffff'; ctx.font = '18px Courier New';
+    // Box gradient background
+    let boxGrad = ctx.createLinearGradient(bx2, by2, bx2, by2 + bhh);
+    boxGrad.addColorStop(0, 'rgba(40,0,0,0.95)');
+    boxGrad.addColorStop(1, 'rgba(20,0,0,0.98)');
+    ctx.fillStyle = boxGrad;
+    ctx.fillRect(bx2, by2, bww, bhh);
+    // Box border with glow
+    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 2;
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 8;
+    ctx.strokeRect(bx2, by2, bww, bhh);
+    ctx.shadowBlur = 0;
+    // Inner border
+    ctx.strokeStyle = 'rgba(255,0,0,0.2)'; ctx.lineWidth = 1;
+    ctx.strokeRect(bx2 + 4, by2 + 4, bww - 8, bhh - 8);
+    // Speaker indicator
+    ctx.fillStyle = '#ff4444'; ctx.font = 'bold 11px Courier New';
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText(combat.cutsceneTyped, bx2 + 16, by2 + 16);
+    ctx.fillText(en.name + ':', bx2 + 12, by2 + 6);
+
+    ctx.fillStyle = '#ffffff'; ctx.font = '18px Courier New';
+    ctx.fillText(combat.cutsceneTyped, bx2 + 16, by2 + 24);
     if (combat.cutsceneCharIdx >= (combat.cutsceneLines[combat.cutsceneIdx] || '').length) {
         if (Math.floor(Date.now() / 400) % 2) {
             ctx.fillStyle = '#ffffff'; ctx.font = 'bold 14px Courier New'; ctx.textAlign = 'right';
             ctx.fillText('[CLICK / ENTER / SPACE]', bx2 + bww - 12, by2 + bhh - 22);
         }
     }
+
+    // Scanlines overlay
+    renderScanlines();
     ctx.textBaseline = 'alphabetic';
 }
 
@@ -1863,49 +2610,150 @@ function renderCutscene() {
 function renderFightIntro() {
     renderCombatScene();
     let a = Math.min(1, combat.introTimer / 400);
+    let t = 1 - combat.introTimer / 1200;
+
+    // Radial flash
     ctx.fillStyle = 'rgba(255,0,0,' + (a * 0.3) + ')'; ctx.fillRect(0, 0, W, H);
+
+    // Zoom-in text effect
+    let scale = 0.5 + t * 1.5;
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(scale, scale);
     ctx.fillStyle = '#ff0000'; ctx.font = 'bold 72px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 30;
-    ctx.fillText('FIGHT!', W / 2, H / 2);
-    ctx.shadowBlur = 0; ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 30 + t * 20;
+    ctx.fillText('FIGHT!', 0, 0);
+    // Outline
+    ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 3;
+    ctx.strokeText('FIGHT!', 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    // Burst lines
+    for (let i = 0; i < 12; i++) {
+        let angle = (Math.PI * 2 / 12) * i + t * 0.5;
+        let len = 40 + t * 200;
+        ctx.strokeStyle = 'rgba(255,100,0,' + (a * 0.4) + ')';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(W/2 + Math.cos(angle) * 60, H/2 + Math.sin(angle) * 60);
+        ctx.lineTo(W/2 + Math.cos(angle) * len, H/2 + Math.sin(angle) * len);
+        ctx.stroke();
+    }
 }
 
 function renderKO() {
     renderCombatScene();
-    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(0, 0, W, H);
+
+    // Dramatic overlay
+    let koProgress = 1 - combat.koTimer / 2200;
+    ctx.fillStyle = 'rgba(0,0,0,' + Math.min(0.6, koProgress * 0.8) + ')'; ctx.fillRect(0, 0, W, H);
+
+    // K.O. text with slam effect
+    let textScale = koProgress < 0.15 ? (koProgress / 0.15) * 2 : 1 + Math.sin(koProgress * 3) * 0.05;
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(textScale, textScale);
     ctx.fillStyle = '#ff0000'; ctx.font = 'bold 80px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 40;
-    ctx.fillText('K.O.!', W / 2, H / 2);
-    ctx.shadowBlur = 0; ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 40 + Math.sin(Date.now() * 0.01) * 10;
+    ctx.fillText('K.O.!', 0, 0);
+    ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 3;
+    ctx.strokeText('K.O.!', 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+
+    // Score popup
+    if (koProgress > 0.3) {
+        let sa = Math.min(1, (koProgress - 0.3) * 3);
+        ctx.fillStyle = 'rgba(255,200,0,' + sa + ')';
+        ctx.font = 'bold 24px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('+' + (combat.enemy.maxHealth * 10) + ' PTS', W / 2, H / 2 + 60);
+        ctx.fillStyle = 'rgba(255,204,0,' + sa + ')';
+        ctx.font = '18px Courier New';
+        ctx.fillText('+' + combat.enemy.coins + ' COINS', W / 2, H / 2 + 85);
+    }
+    ctx.textBaseline = 'alphabetic';
 }
 
 // ─── Menu ────────────────────────────────────────────────────────────
 function renderMenu() {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 4;
-    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 20;
+
+    // Animated background particles
+    let t = Date.now() * 0.001;
+    for (let mp of menuParticles) {
+        mp.x += mp.vx;
+        mp.y += mp.vy;
+        if (mp.y < -5) { mp.y = H + 5; mp.x = Math.random() * W; }
+        if (mp.x < -5) mp.x = W + 5;
+        if (mp.x > W + 5) mp.x = -5;
+        ctx.globalAlpha = mp.alpha * (0.5 + Math.sin(t + mp.x * 0.01) * 0.5);
+        ctx.fillStyle = mp.color;
+        ctx.beginPath(); ctx.arc(mp.x, mp.y, mp.size, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // Animated glow border
+    let glowPhase = Math.sin(t * 2) * 0.3 + 0.7;
+    ctx.strokeStyle = 'rgba(255,0,0,' + glowPhase + ')'; ctx.lineWidth = 4;
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 20 + Math.sin(t * 3) * 10;
     ctx.strokeRect(20, 20, W - 40, H - 40); ctx.shadowBlur = 0;
+
+    // Corner decorations
+    let cornerSize = 20;
+    ctx.strokeStyle = '#ff4400'; ctx.lineWidth = 2;
+    // Top-left
+    ctx.beginPath(); ctx.moveTo(20, 20 + cornerSize); ctx.lineTo(20, 20); ctx.lineTo(20 + cornerSize, 20); ctx.stroke();
+    // Top-right
+    ctx.beginPath(); ctx.moveTo(W-20 - cornerSize, 20); ctx.lineTo(W-20, 20); ctx.lineTo(W-20, 20 + cornerSize); ctx.stroke();
+    // Bottom-left
+    ctx.beginPath(); ctx.moveTo(20, H-20 - cornerSize); ctx.lineTo(20, H-20); ctx.lineTo(20 + cornerSize, H-20); ctx.stroke();
+    // Bottom-right
+    ctx.beginPath(); ctx.moveTo(W-20 - cornerSize, H-20); ctx.lineTo(W-20, H-20); ctx.lineTo(W-20, H-20 - cornerSize); ctx.stroke();
+
+    // Title with glow pulse
     ctx.fillStyle = '#ff0000'; ctx.font = 'bold 46px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 25;
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 25 + Math.sin(t * 2) * 8;
     ctx.fillText('DRUNKEN STREET', W / 2, H * 0.14);
     ctx.fillText('BOXING', W / 2, H * 0.26);
     ctx.shadowBlur = 0;
+
+    // Subtitle with typewriter shimmer
     ctx.fillStyle = '#cc4444'; ctx.font = '14px Courier New';
-    ctx.fillText('5 FLOORS \u2022 9 FIGHTERS \u2022 CLIMB TO THE TOP', W / 2, H * 0.35);
+    let subtitle = '5 FLOORS \u2022 9 FIGHTERS \u2022 CLIMB TO THE TOP';
+    for (let i = 0; i < subtitle.length; i++) {
+        let charAlpha = 0.5 + Math.sin(t * 4 + i * 0.3) * 0.3;
+        ctx.fillStyle = 'rgba(204,68,68,' + charAlpha + ')';
+        let charX = W/2 - ctx.measureText(subtitle).width / 2 + ctx.measureText(subtitle.substring(0, i)).width;
+        ctx.textAlign = 'left';
+        ctx.fillText(subtitle[i], charX, H * 0.35);
+    }
+    ctx.textAlign = 'center';
+
     let y = H * 0.46;
     for (let i = 0; i < MENU_OPTIONS.length; i++) {
         let sel = i === menuCursor;
-        // Hoverable button look
         let bw = 220, bh = 38;
         let bx = W / 2 - bw / 2, by = y - bh / 2;
+
         if (sel) {
-            ctx.fillStyle = 'rgba(255,0,0,0.15)';
+            // Animated selection background
+            let selGlow = 0.15 + Math.sin(t * 5) * 0.05;
+            ctx.fillStyle = 'rgba(255,0,0,' + selGlow + ')';
             ctx.fillRect(bx, by, bw, bh);
+            // Animated border
             ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 2;
+            ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 8;
             ctx.strokeRect(bx, by, bw, bh);
+            ctx.shadowBlur = 0;
+            // Selection arrows
+            ctx.fillStyle = '#ff4444'; ctx.font = 'bold 20px Courier New';
+            ctx.fillText('\u25B8', bx - 18, y);
+            ctx.fillText('\u25C2', bx + bw + 18, y);
         }
         ctx.fillStyle = sel ? '#ffffff' : '#884444';
         ctx.font = (sel ? 'bold ' : '') + '28px Courier New';
@@ -1917,25 +2765,58 @@ function renderMenu() {
         }
         y += 42;
     }
-    ctx.fillStyle = '#ffcc00'; ctx.font = '16px Courier New';
-    ctx.fillText('Coins: ' + saveData.coins, W / 2, H * 0.82);
+
+    // Coins with icon
+    ctx.fillStyle = '#ffcc00'; ctx.font = 'bold 16px Courier New';
+    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 5;
+    ctx.fillText('\u2B50 Coins: ' + saveData.coins, W / 2, H * 0.82);
+    ctx.shadowBlur = 0;
     ctx.fillStyle = '#aaaaaa';
-    ctx.fillText('High Score: ' + saveData.highScore, W / 2, H * 0.88);
+    ctx.fillText('\u2588 High Score: ' + saveData.highScore, W / 2, H * 0.88);
+
     ctx.fillStyle = '#ffffff'; ctx.font = '13px Courier New';
-    if (Math.floor(Date.now() / 600) % 2) ctx.fillText('WASD / Arrows to navigate \u2022 ENTER or CLICK to select', W / 2, H * 0.94);
+    let blink = Math.floor(Date.now() / 600) % 2;
+    if (blink) ctx.fillText('WASD / Arrows to navigate \u2022 ENTER or CLICK to select', W / 2, H * 0.94);
+
+    // Scanlines on menu
+    renderScanlines();
     ctx.textBaseline = 'alphabetic';
 }
 
 // ─── Shop Screen ─────────────────────────────────────────────────────
 function renderShop() {
-    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    // Background with subtle gradient
+    let shopBg = ctx.createLinearGradient(0, 0, 0, H);
+    shopBg.addColorStop(0, '#0a0000');
+    shopBg.addColorStop(1, '#000000');
+    ctx.fillStyle = shopBg; ctx.fillRect(0, 0, W, H);
+
+    // Animated border with glow
+    let t = Date.now() * 0.001;
     ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 3;
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 10 + Math.sin(t * 2) * 5;
     ctx.strokeRect(10, 10, W - 20, H - 20);
+    ctx.shadowBlur = 0;
+
+    // Corner gems
+    let gemPos = [[15,15],[W-15,15],[15,H-15],[W-15,H-15]];
+    for (let gp of gemPos) {
+        ctx.fillStyle = '#ff2200'; ctx.beginPath();
+        ctx.arc(gp[0], gp[1], 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,100,0,' + (0.3 + Math.sin(t * 3) * 0.2) + ')';
+        ctx.beginPath(); ctx.arc(gp[0], gp[1], 8, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Title
     ctx.fillStyle = '#ff0000'; ctx.font = 'bold 32px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 15;
     ctx.fillText('SHOP & CUSTOMIZATION', W / 2, 38);
     ctx.shadowBlur = 0;
+    // Title underline
+    ctx.strokeStyle = 'rgba(255,0,0,0.4)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(W * 0.2, 54); ctx.lineTo(W * 0.8, 54); ctx.stroke();
+
     ctx.fillStyle = '#ffcc00'; ctx.font = '16px Courier New';
     ctx.textAlign = 'right'; ctx.fillText('Coins: ' + saveData.coins, W - 30, 38);
     ctx.textAlign = 'center'; ctx.font = 'bold 18px Courier New';
@@ -2008,42 +2889,89 @@ function renderShop() {
 
 function drawShopPreview(skinItem, gloveItem) {
     let pcx = W * 0.72, pcy = H * 0.48;
+    let t = Date.now() * 0.001;
+    // Idle breathing
+    let breathL = Math.sin(t * 2.5) * 3;
+    let breathR = Math.sin(t * 2.5 + 0.6) * 3;
+
+    // Left arm
     ctx.fillStyle = skinItem.armColor;
-    ctx.beginPath(); ctx.ellipse(pcx - 55, pcy - 10, 26, 16, -0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(pcx - 55, pcy - 10 + breathL, 26, 16, -0.3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = skinItem.highlight;
-    ctx.beginPath(); ctx.ellipse(pcx - 50, pcy - 16, 12, 8, -0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(pcx - 50, pcy - 16 + breathL, 12, 8, -0.3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = skinItem.armColor;
     ctx.fillRect(pcx - 72, pcy + 10, 30, 50);
     ctx.fillStyle = gloveItem.color;
-    ctx.beginPath(); ctx.arc(pcx - 58, pcy + 15, 28, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(pcx - 58, pcy + 15 + breathL, 28, 0, Math.PI * 2); ctx.fill();
+    // Glove shine
+    let gShine = ctx.createRadialGradient(pcx - 64, pcy + 8 + breathL, 2, pcx - 58, pcy + 15 + breathL, 28);
+    gShine.addColorStop(0, 'rgba(255,255,255,0.3)');
+    gShine.addColorStop(1, 'rgba(0,0,0,0.05)');
+    ctx.fillStyle = gShine;
+    ctx.beginPath(); ctx.arc(pcx - 58, pcy + 15 + breathL, 28, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = gloveItem.outline; ctx.lineWidth = 3; ctx.stroke();
     ctx.fillStyle = gloveItem.outline;
-    for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(pcx - 58 + i * 9, pcy + 2, 4, 0, Math.PI * 2); ctx.fill(); }
+    for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(pcx - 58 + i * 9, pcy + 2 + breathL, 4, 0, Math.PI * 2); ctx.fill(); }
+
+    // Right arm
     ctx.fillStyle = skinItem.armColor;
-    ctx.beginPath(); ctx.ellipse(pcx + 55, pcy - 10, 26, 16, 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(pcx + 55, pcy - 10 + breathR, 26, 16, 0.3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = skinItem.highlight;
-    ctx.beginPath(); ctx.ellipse(pcx + 50, pcy - 16, 12, 8, 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(pcx + 50, pcy - 16 + breathR, 12, 8, 0.3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = skinItem.armColor;
     ctx.fillRect(pcx + 42, pcy + 10, 30, 50);
     ctx.fillStyle = gloveItem.color;
-    ctx.beginPath(); ctx.arc(pcx + 58, pcy + 15, 28, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(pcx + 58, pcy + 15 + breathR, 28, 0, Math.PI * 2); ctx.fill();
+    let gShine2 = ctx.createRadialGradient(pcx + 52, pcy + 8 + breathR, 2, pcx + 58, pcy + 15 + breathR, 28);
+    gShine2.addColorStop(0, 'rgba(255,255,255,0.3)');
+    gShine2.addColorStop(1, 'rgba(0,0,0,0.05)');
+    ctx.fillStyle = gShine2;
+    ctx.beginPath(); ctx.arc(pcx + 58, pcy + 15 + breathR, 28, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = gloveItem.outline; ctx.lineWidth = 3; ctx.stroke();
     ctx.fillStyle = gloveItem.outline;
-    for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(pcx + 58 + i * 9, pcy + 2, 4, 0, Math.PI * 2); ctx.fill(); }
+    for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(pcx + 58 + i * 9, pcy + 2 + breathR, 4, 0, Math.PI * 2); ctx.fill(); }
+
     let item = shopTab === 0 ? SKINS[shopCursor] : GLOVES_SHOP[shopCursor];
     ctx.fillStyle = '#ffffff'; ctx.font = 'bold 16px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ff4444'; ctx.shadowBlur = 6;
     ctx.fillText(item.name, pcx, pcy + 90);
+    ctx.shadowBlur = 0;
 }
 
 // ─── Settings Screen ─────────────────────────────────────────────────
 function renderSettings() {
-    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 3; ctx.strokeRect(10, 10, W - 20, H - 20);
+    // Background gradient
+    let setBg = ctx.createLinearGradient(0, 0, 0, H);
+    setBg.addColorStop(0, '#080000');
+    setBg.addColorStop(1, '#000');
+    ctx.fillStyle = setBg; ctx.fillRect(0, 0, W, H);
+    let t = Date.now() * 0.001;
+
+    // Animated border
+    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 3;
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 8 + Math.sin(t * 2) * 4;
+    ctx.strokeRect(10, 10, W - 20, H - 20);
+    ctx.shadowBlur = 0;
+
+    // Gear icon decoration
+    ctx.fillStyle = 'rgba(255,0,0,0.06)';
+    ctx.save(); ctx.translate(W * 0.85, H * 0.15);
+    ctx.rotate(t * 0.3);
+    for (let i = 0; i < 8; i++) {
+        ctx.fillRect(-8, -40, 16, 80);
+        ctx.rotate(Math.PI / 4);
+    }
+    ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
     ctx.fillStyle = '#ff0000'; ctx.font = 'bold 36px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 15;
     ctx.fillText('SETTINGS', W / 2, 50); ctx.shadowBlur = 0;
+    // Underline
+    ctx.strokeStyle = 'rgba(255,0,0,0.3)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(W * 0.3, 68); ctx.lineTo(W * 0.7, 68); ctx.stroke();
 
     let y = 120;
     for (let i = 0; i < SETTINGS_OPTS.length; i++) {
@@ -2083,67 +3011,168 @@ function renderSettings() {
 // ─── Game Over & Win ─────────────────────────────────────────────────
 function renderGameOver() {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    let t = Date.now() * 0.001;
+
+    // Rain-like falling particles
+    ctx.strokeStyle = 'rgba(255,0,0,0.15)'; ctx.lineWidth = 1;
+    for (let i = 0; i < 30; i++) {
+        let rx = (i * 27 + t * 30) % W;
+        let ry = (i * 67 + t * 80) % H;
+        ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 2, ry + 12); ctx.stroke();
+    }
+
+    // Pulsing vignette
+    let vigPulse = 0.4 + Math.sin(t * 2) * 0.1;
+    let vigGrad = ctx.createRadialGradient(W/2, H/2, 50, W/2, H/2, W*0.6);
+    vigGrad.addColorStop(0, 'rgba(80,0,0,0)');
+    vigGrad.addColorStop(1, 'rgba(80,0,0,' + vigPulse + ')');
+    ctx.fillStyle = vigGrad; ctx.fillRect(0, 0, W, H);
+
     ctx.fillStyle = '#ff0000'; ctx.font = 'bold 64px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 30;
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 30 + Math.sin(t * 3) * 10;
     ctx.fillText('GAME OVER', W / 2, H * 0.3); ctx.shadowBlur = 0;
+
+    // Separator line
+    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(W * 0.25, H * 0.38); ctx.lineTo(W * 0.75, H * 0.38); ctx.stroke();
+
     ctx.font = '22px Courier New';
+    ctx.fillStyle = '#ff4444';
     ctx.fillText('Final Score: ' + player.score, W / 2, H * 0.48);
     ctx.fillStyle = '#ffcc00'; ctx.fillText('Coins Earned: ' + saveData.coins, W / 2, H * 0.56);
     ctx.fillStyle = '#888888'; ctx.font = '16px Courier New';
     ctx.fillText('Reached Floor ' + LEVELS[currentLevel].floor + ': ' + LEVELS[currentLevel].name, W / 2, H * 0.65);
+
+    // Stats summary
+    if (comboBest > 0) {
+        ctx.fillStyle = '#ff8800'; ctx.font = '14px Courier New';
+        ctx.fillText('Best Combo: ' + comboBest + 'x', W / 2, H * 0.72);
+    }
+
     if (Math.floor(Date.now() / 500) % 2) {
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px Courier New';
-        ctx.fillText('[ CLICK or PRESS ENTER ]', W / 2, H * 0.82);
+        ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+        ctx.fillText('[ CLICK or PRESS ENTER ]', W / 2, H * 0.85);
+        ctx.shadowBlur = 0;
     }
+    renderScanlines();
     ctx.textBaseline = 'alphabetic';
 }
 
 function renderWin() {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
     let t = Date.now() * 0.001;
-    for (let i = 0; i < 20; i++) {
+
+    // Firework particles (more elaborate)
+    for (let i = 0; i < 40; i++) {
         let px = (Math.sin(t * 0.7 + i * 1.3) * 0.5 + 0.5) * W;
         let py = (Math.cos(t * 0.5 + i * 0.9) * 0.5 + 0.5) * H;
-        ctx.fillStyle = ['#ff0000', '#ffcc00', '#ff4400', '#ff8800'][i % 4];
-        ctx.globalAlpha = 0.3 + Math.sin(t * 2 + i) * 0.2;
-        ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
+        let colors = ['#ff0000', '#ffcc00', '#ff4400', '#ff8800', '#ffffff', '#ff66aa', '#00ff88'];
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.globalAlpha = 0.3 + Math.sin(t * 2 + i) * 0.3;
+        let size = 2 + Math.sin(t * 3 + i * 0.7) * 2;
+        ctx.beginPath(); ctx.arc(px, py, size, 0, Math.PI * 2); ctx.fill();
+        // Trailing glow
+        ctx.globalAlpha *= 0.3;
+        ctx.beginPath(); ctx.arc(px, py, size * 3, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
-    ctx.fillStyle = '#ff0000'; ctx.font = 'bold 58px Courier New';
+
+    // Spotlight effect
+    let spotGrad = ctx.createRadialGradient(W/2, H*0.2, 10, W/2, H*0.2, 200);
+    spotGrad.addColorStop(0, 'rgba(255,200,0,0.1)');
+    spotGrad.addColorStop(1, 'rgba(255,200,0,0)');
+    ctx.fillStyle = spotGrad; ctx.fillRect(0, 0, W, H);
+
+    // Crown icon
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = '40px Courier New';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 15;
+    ctx.fillText('\u265A', W / 2, H * 0.1);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = '#ff0000'; ctx.font = 'bold 58px Courier New';
     ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 30;
     ctx.fillText('CHAMPION!', W / 2, H * 0.22); ctx.shadowBlur = 0;
+
+    // Decorative lines
+    ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(W * 0.2, H * 0.3); ctx.lineTo(W * 0.8, H * 0.3); ctx.stroke();
+
     ctx.font = '20px Courier New';
+    ctx.fillStyle = '#ff4444';
     ctx.fillText('You conquered all 5 floors!', W / 2, H * 0.38);
     ctx.fillText('All 9 fighters knocked out.', W / 2, H * 0.46);
-    ctx.fillStyle = '#ffcc00'; ctx.fillText('Final Score: ' + player.score, W / 2, H * 0.56);
+
+    ctx.fillStyle = '#ffcc00';
+    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 5;
+    ctx.fillText('Final Score: ' + player.score, W / 2, H * 0.56);
     ctx.fillText('Coins: ' + saveData.coins, W / 2, H * 0.64);
-    if (drunkLevel >= 2) { ctx.fillStyle = '#ffaa00'; ctx.fillText('...and you did it drunk. Legend.', W / 2, H * 0.72); }
+    ctx.shadowBlur = 0;
+
+    if (comboBest > 0) {
+        ctx.fillStyle = '#ff8800'; ctx.font = '16px Courier New';
+        ctx.fillText('Best Combo: ' + comboBest + 'x', W / 2, H * 0.70);
+    }
+
+    if (drunkLevel >= 2) {
+        ctx.fillStyle = '#ffaa00'; ctx.font = '20px Courier New';
+        ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 8;
+        ctx.fillText('...and you did it drunk. Legend.', W / 2, H * 0.76);
+        ctx.shadowBlur = 0;
+    }
+
     if (Math.floor(Date.now() / 500) % 2) {
         ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px Courier New';
+        ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
         ctx.fillText('[ CLICK or PRESS ENTER ]', W / 2, H * 0.88);
+        ctx.shadowBlur = 0;
     }
+    renderScanlines();
     ctx.textBaseline = 'alphabetic';
 }
 
 // ─── Explore Rendering ──────────────────────────────────────────────
 function renderExplore() {
     let lvl = LEVELS[currentLevel];
-    let grd = ctx.createLinearGradient(0, 0, 0, H / 2);
-    grd.addColorStop(0, lvl.floorC1); grd.addColorStop(1, lvl.floorC2);
-    ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H / 2);
-    grd = ctx.createLinearGradient(0, H / 2, 0, H);
-    grd.addColorStop(0, lvl.floorC2); grd.addColorStop(1, lvl.floorC1);
-    ctx.fillStyle = grd; ctx.fillRect(0, H / 2, W, H / 2);
+    // Ceiling and floor handled by castRays -> renderFloorCeiling
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+
+    // Head bob effect when moving
+    let isMoving = keys['w'] || keys['arrowup'] || keys['s'] || keys['arrowdown'];
+    if (isMoving) {
+        let bobAmt = Math.sin(Date.now() * 0.008) * 3;
+        ctx.save();
+        ctx.translate(0, bobAmt);
+    }
+
     let zBuf = castRays();
     renderSprites(zBuf);
+
+    if (isMoving) ctx.restore();
+
     renderProximity();
+
+    // Ambient dust particles
+    renderDust();
+
     renderExploreArms();
     renderMinimap();
     renderExploreHUD();
     renderScanlines();
     renderVignette();
+
+    // Low health warning overlay
+    if (player.health < player.maxHealth * 0.3 && player.health > 0) {
+        let pulse = 0.05 + Math.sin(Date.now() * 0.005) * 0.04;
+        let dangerGrad = ctx.createRadialGradient(W/2, H/2, H*0.3, W/2, H/2, W*0.6);
+        dangerGrad.addColorStop(0, 'rgba(255,0,0,0)');
+        dangerGrad.addColorStop(1, 'rgba(200,0,0,' + pulse + ')');
+        ctx.fillStyle = dangerGrad; ctx.fillRect(0, 0, W, H);
+    }
+
     applyDrunkEffects();
     renderNotifications();
 
@@ -2162,18 +3191,56 @@ function renderExplore() {
             ctx.textBaseline = 'alphabetic';
         }
     }
+
+    // Enhanced crosshair with targeting reticle
+    let nearEnemy = false;
+    for (let e of enemies) {
+        if (!e.alive || e.isBag) continue;
+        let dx = e.x - player.x, dy = e.y - player.y;
+        if (Math.sqrt(dx*dx + dy*dy) < 3) { nearEnemy = true; break; }
+    }
+    let crossColor = nearEnemy ? '#ff2222' : '#ff4444';
+    let crossSize = nearEnemy ? 10 : 8;
+    let crossAlpha = nearEnemy ? 0.6 : 0.3;
+    ctx.globalAlpha = crossAlpha;
+    ctx.strokeStyle = crossColor; ctx.lineWidth = nearEnemy ? 2 : 1;
+    // Horizontal
+    ctx.beginPath(); ctx.moveTo(W/2 - crossSize, H/2); ctx.lineTo(W/2 - 3, H/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W/2 + 3, H/2); ctx.lineTo(W/2 + crossSize, H/2); ctx.stroke();
+    // Vertical
+    ctx.beginPath(); ctx.moveTo(W/2, H/2 - crossSize); ctx.lineTo(W/2, H/2 - 3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W/2, H/2 + 3); ctx.lineTo(W/2, H/2 + crossSize); ctx.stroke();
+    // Center dot
+    if (nearEnemy) {
+        ctx.fillStyle = crossColor;
+        ctx.beginPath(); ctx.arc(W/2, H/2, 1.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
 }
 
 // ─── Visual Effects ──────────────────────────────────────────────────
 function renderScanlines() {
     ctx.fillStyle = 'rgba(0,0,0,0.04)';
     for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+    // CRT curvature effect (subtle edge darkening)
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    ctx.fillRect(0, 0, 3, H);
+    ctx.fillRect(W - 3, 0, 3, H);
+    ctx.fillRect(0, 0, W, 2);
+    ctx.fillRect(0, H - 2, W, 2);
+    // Subtle static noise (occasional)
+    if (Math.random() < 0.03) {
+        let noiseY = Math.random() * H;
+        ctx.fillStyle = 'rgba(255,255,255,0.02)';
+        ctx.fillRect(0, noiseY, W, 1 + Math.random() * 3);
+    }
 }
 
 function renderVignette() {
-    let grd = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, W * 0.68);
+    let grd = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.72);
     grd.addColorStop(0, 'rgba(0,0,0,0)');
-    grd.addColorStop(1, 'rgba(0,0,0,0.35)');
+    grd.addColorStop(0.7, 'rgba(0,0,0,0.15)');
+    grd.addColorStop(1, 'rgba(0,0,0,0.5)');
     ctx.fillStyle = grd; ctx.fillRect(0, 0, W, H);
 }
 
@@ -2210,13 +3277,30 @@ function renderNotifications() {
     let y = H * 0.2;
     for (let n of notifications) {
         let a = Math.min(1, n.timer / 400);
+        let slideX = (1 - a) * 30;
+
+        // Background pill
+        let tw = ctx.measureText(n.text).width || 200;
+        ctx.fillStyle = 'rgba(40,20,0,' + a * 0.6 + ')';
+        ctx.beginPath();
+        ctx.roundRect(W / 2 - tw / 2 - 16 + slideX, y - 14, tw + 32, 28, 14);
+        ctx.fill();
+
+        // Text with glow
         ctx.fillStyle = 'rgba(255,200,0,' + a + ')';
         ctx.font = 'bold 20px Courier New';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.shadowColor = '#ffcc00'; ctx.shadowBlur = 10;
-        ctx.fillText(n.text, W / 2, y);
+        ctx.shadowColor = '#ffcc00'; ctx.shadowBlur = 12;
+        ctx.fillText(n.text, W / 2 + slideX, y);
         ctx.shadowBlur = 0;
-        y += 30;
+
+        // Border
+        ctx.strokeStyle = 'rgba(255,200,0,' + a * 0.3 + ')'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(W / 2 - tw / 2 - 16 + slideX, y - 14, tw + 32, 28, 14);
+        ctx.stroke();
+
+        y += 36;
     }
     ctx.textBaseline = 'alphabetic';
 }
@@ -2226,18 +3310,19 @@ function updateExplore(dt) {
     let moveSpeed = PLAYER_SPEED * settings.speed;
     let turnSpeed = TURN_SPEED * settings.sensitivity;
     let moveX = 0, moveY = 0;
-    if (keys['w'] || keys['arrowup']) { moveX += Math.cos(player.angle) * moveSpeed * dt; moveY += Math.sin(player.angle) * moveSpeed * dt; }
-    if ((keys['s'] || keys['arrowdown']) && state === ST.EXPLORE) { moveX -= Math.cos(player.angle) * moveSpeed * dt; moveY -= Math.sin(player.angle) * moveSpeed * dt; }
+    let isMoving = false;
+    if (keys['w'] || keys['arrowup']) { moveX += Math.cos(player.angle) * moveSpeed * dt; moveY += Math.sin(player.angle) * moveSpeed * dt; isMoving = true; }
+    if ((keys['s'] || keys['arrowdown']) && state === ST.EXPLORE) { moveX -= Math.cos(player.angle) * moveSpeed * dt; moveY -= Math.sin(player.angle) * moveSpeed * dt; isMoving = true; }
     if ((keys['a'] || keys['arrowleft']) && state === ST.EXPLORE) player.angle -= turnSpeed * dt;
     if ((keys['d'] || keys['arrowright']) && state === ST.EXPLORE) player.angle += turnSpeed * dt;
 
-    // Mouse-based turning: mouse X position relative to canvas center
+    // Mouse-based turning
     if (mouseOnCanvas) {
-        let deadZone = W * 0.08; // small dead zone in the center so tiny movements don't turn
+        let deadZone = W * 0.08;
         let offset = mouseX - W / 2;
         if (Math.abs(offset) > deadZone) {
             let sign = offset > 0 ? 1 : -1;
-            let magnitude = (Math.abs(offset) - deadZone) / (W / 2 - deadZone); // 0..1
+            let magnitude = (Math.abs(offset) - deadZone) / (W / 2 - deadZone);
             player.angle += sign * magnitude * turnSpeed * 1.2 * dt;
         }
     }
@@ -2250,7 +3335,25 @@ function updateExplore(dt) {
     if (currentMap[Math.floor(player.y)][Math.floor(nx + (moveX > 0 ? buf : -buf))] === 0) player.x = nx;
     if (currentMap[Math.floor(ny + (moveY > 0 ? buf : -buf))][Math.floor(player.x)] === 0) player.y = ny;
 
-    if (keys['w'] || keys['s'] || keys['arrowup'] || keys['arrowdown']) armBob += dt * 0.008;
+    if (isMoving) {
+        armBob += dt * 0.008;
+        // Footstep sound
+        footstepTimer -= dt;
+        if (footstepTimer <= 0) {
+            SFX.footstep();
+            footstepTimer = 350 / settings.speed;
+        }
+    }
+
+    // Update dust particles
+    for (let d of dustParticles) {
+        d.x += d.vx;
+        d.y += d.vy;
+        if (d.y > H) { d.y = -2; d.x = Math.random() * W; }
+        if (d.x < 0) d.x = W;
+        if (d.x > W) d.x = 0;
+        d.alpha = 0.1 + Math.sin(Date.now() * 0.001 + d.x) * 0.08;
+    }
 
     // Bottle pickup
     for (let b of bottles) {
@@ -2276,6 +3379,19 @@ function updateExplore(dt) {
     for (let e of enemies) {
         if (!e.alive) continue;
         if (Math.hypot(e.x - player.x, e.y - player.y) < ENGAGE_DIST) {
+            // Reset smooth HP bars for new fight
+            smoothPlayerHP = player.health;
+            smoothEnemyHP = e.health;
+            damageNumbers = [];
+            speedLines = [];
+            impactRings = [];
+            comboCount = 0;
+            comboTimer = 0;
+            bloodOverlay = 0;
+            cameraTilt = 0;
+            cameraTiltTarget = 0;
+            screenWarp = 0;
+            slowMoTimer = 0;
             startCombat(e); return;
         }
     }
@@ -2319,25 +3435,88 @@ function updateCombat(dt) {
     let en = combat.enemy;
     let dm = DIFF_MULT[settings.difficulty];
 
-    combat.bob += combat.bobDir * dt * 0.02;
+    // Apply slow-motion
+    let effectiveDt = dt;
+    if (slowMoTimer > 0) {
+        slowMoTimer -= dt;
+        slowMoFactor = 0.3;
+        effectiveDt = dt * slowMoFactor;
+        if (slowMoTimer <= 0) slowMoFactor = 1;
+    }
+
+    combat.bob += combat.bobDir * effectiveDt * 0.02;
     if (Math.abs(combat.bob) > 4) combat.bobDir *= -1;
     if (combat.hitFlash > 0) combat.hitFlash -= dt;
     if (combat.enemyHitFlash > 0) combat.enemyHitFlash -= dt;
     if (combat.shake > 0) combat.shake -= dt * 0.04;
     if (combat.msgTimer > 0) combat.msgTimer -= dt;
-    if (combat.cooldown > 0) combat.cooldown -= dt;
-    if (combat.dodgeCooldown > 0) combat.dodgeCooldown -= dt;
+    if (combat.cooldown > 0) combat.cooldown -= effectiveDt;
+    if (combat.dodgeCooldown > 0) combat.dodgeCooldown -= effectiveDt;
     if (drunkNotifyTimer > 0) drunkNotifyTimer -= dt;
 
+    // Camera tilt smooth interpolation
+    cameraTilt += (cameraTiltTarget - cameraTilt) * 0.1;
+    if (Math.abs(cameraTilt) < 0.01) cameraTilt = 0;
+    cameraTiltTarget *= 0.95;
+
+    // Smooth health bars
+    smoothPlayerHP += (player.health - smoothPlayerHP) * 0.05;
+    smoothEnemyHP += (en.health - smoothEnemyHP) * 0.05;
+
+    // Screen warp decay
+    if (screenWarp > 0) screenWarp -= dt;
+
+    // Blood overlay decay
+    if (bloodOverlay > 0) {
+        bloodOverlay -= dt * 0.5;
+        for (let drip of bloodDrips) {
+            drip.y += drip.speed * dt * 0.01;
+        }
+    }
+
+    // Combo timer decay
+    if (comboTimer > 0) {
+        comboTimer -= dt;
+        if (comboTimer <= 0) {
+            if (comboCount > comboBest) comboBest = comboCount;
+            comboCount = 0;
+        }
+    }
+
+    // Update damage numbers
+    for (let i = damageNumbers.length - 1; i >= 0; i--) {
+        let dn = damageNumbers[i];
+        dn.x += dn.vx;
+        dn.y += dn.vy;
+        dn.vy += 0.03;
+        dn.life -= dt;
+        if (dn.life <= 0) damageNumbers.splice(i, 1);
+    }
+
+    // Update speed lines
+    for (let i = speedLines.length - 1; i >= 0; i--) {
+        speedLines[i].life -= dt;
+        if (speedLines[i].life <= 0) speedLines.splice(i, 1);
+    }
+
+    // Update impact rings
+    for (let i = impactRings.length - 1; i >= 0; i--) {
+        impactRings[i].life -= dt;
+        if (impactRings[i].life <= 0) impactRings.splice(i, 1);
+    }
+
     if (combat.dodging) {
-        combat.dodgeTimer -= dt;
+        combat.dodgeTimer -= effectiveDt;
         if (combat.dodgeTimer <= 0) combat.dodging = false;
+        // Camera tilt during dodge
+        if (combat.dodgeDir === -1) cameraTiltTarget = -3;
+        else if (combat.dodgeDir === 1) cameraTiltTarget = 3;
     }
     combat.blocking = !!keys[' '];
 
     // Player attack resolution
     if (combat.attacking) {
-        combat.attackTimer -= dt;
+        combat.attackTimer -= effectiveDt;
         if (combat.attackTimer <= 0) {
             if (combat.attackType === 'special') {
                 // Special move
@@ -2348,22 +3527,49 @@ function updateCombat(dt) {
                     combat.attacking = false; combat.cooldown = 800; SFX.miss(); return;
                 }
                 en.health -= dmg;
-                playerXp = 0; // XP consumed
+                playerXp = 0;
                 combat.enemyHitFlash = 350;
                 combat.shake = 22;
+                screenWarp = 500;
                 combat.msg = special.name + '!'; combat.msgTimer = 800;
                 combat.attacking = false; combat.cooldown = 800;
-                SFX.special();
-                spawnParticles(W / 2, H * 0.35, 25, special.particleColor);
-                spawnParticles(W / 2 - 50, H * 0.4, 10, special.particleColor);
-                spawnParticles(W / 2 + 50, H * 0.4, 10, special.particleColor);
+                SFX.special(); SFX.critHit();
+
+                // Massive particle burst
+                spawnParticles(W / 2, H * 0.35, 35, special.particleColor);
+                spawnParticles(W / 2 - 50, H * 0.4, 15, special.particleColor);
+                spawnParticles(W / 2 + 50, H * 0.4, 15, special.particleColor);
+                spawnSpeedLines(20, special.particleColor);
+                spawnImpactRing(W / 2, H * 0.35, special.particleColor, 120);
+
+                // Damage number
+                spawnDmgNum(W/2, H * 0.3, Math.floor(dmg), special.particleColor, true);
+
+                // Combo
+                comboCount++;
+                comboTimer = COMBO_DECAY;
+                if (comboCount >= 3) SFX.comboHit();
+
+                // Slow-mo on special
+                slowMoTimer = 400;
+                SFX.slowMo();
             } else {
                 // Normal attack
                 let a = ATTACKS[combat.attackType];
                 let dmg = a.dmg[0] + Math.random() * (a.dmg[1] - a.dmg[0]);
+
+                // Combo damage bonus
+                if (comboCount >= 3) dmg *= 1.1;
+                if (comboCount >= 5) dmg *= 1.2;
+                if (comboCount >= 8) dmg *= 1.3;
+
                 if (drunkLevel >= 2 && Math.random() < 0.15) {
                     combat.msg = 'MISSED! (drunk)'; combat.msgTimer = 500;
-                    combat.attacking = false; combat.cooldown = a.cd; SFX.miss(); return;
+                    combat.attacking = false; combat.cooldown = a.cd; SFX.miss();
+                    // Reset combo on miss
+                    if (comboCount > comboBest) comboBest = comboCount;
+                    comboCount = 0; comboTimer = 0;
+                    return;
                 }
                 en.health -= dmg;
                 // XP gain from dealing damage
@@ -2373,13 +3579,39 @@ function updateCombat(dt) {
                 combat.shake = a.dmg[1] > 14 ? 14 : 5;
                 combat.msg = a.name; combat.msgTimer = 500;
                 combat.attacking = false; combat.cooldown = a.cd;
-                // Play punch SFX based on attack type
+
+                // Speed lines on hooks & uppercuts
+                if (combat.attackType === 'leftHook' || combat.attackType === 'rightHook') {
+                    spawnSpeedLines(8, '#ff6644');
+                    spawnImpactRing(W / 2, H * 0.35, '#ff4444', 60);
+                    screenWarp = 200;
+                }
+                if (combat.attackType === 'uppercut') {
+                    spawnSpeedLines(12, '#ff8844');
+                    spawnImpactRing(W / 2, H * 0.3, '#ffaa44', 80);
+                    screenWarp = 300;
+                    slowMoTimer = 150;
+                }
+
+                // Play punch SFX
                 if (en.isBag) { SFX.bagHit(); }
                 else if (combat.attackType === 'jab') SFX.jab();
                 else if (combat.attackType === 'cross') SFX.cross();
                 else if (combat.attackType === 'leftHook' || combat.attackType === 'rightHook') SFX.hook();
                 else if (combat.attackType === 'uppercut') SFX.uppercut();
+
                 spawnParticles(W / 2, H * 0.35, 8, '#ff4444');
+                spawnImpactRing(W / 2, H * 0.35, '#ff4444');
+
+                // Damage number
+                let dnColor = comboCount >= 5 ? '#ffcc00' : comboCount >= 3 ? '#ff8844' : '#ff4444';
+                spawnDmgNum(W/2 + (Math.random()-0.5)*60, H * 0.3, Math.floor(dmg), dnColor, a.dmg[1] > 14);
+
+                // Combo tracking
+                comboCount++;
+                comboTimer = COMBO_DECAY;
+                if (comboCount >= 3) SFX.comboHit();
+                if (comboCount >= 5) addNotif(comboCount + 'x COMBO!', 1200);
             }
 
             if (en.health <= 0) {
@@ -2391,6 +3623,8 @@ function updateCombat(dt) {
                     writeSave();
                     SFX.coinGain();
                     state = ST.EXPLORE;
+                    // Reset combat visuals
+                    damageNumbers = []; speedLines = []; impactRings = [];
                     return;
                 }
                 let scoreGain = en.maxHealth * 10;
@@ -2401,6 +3635,15 @@ function updateCombat(dt) {
                 writeSave();
                 addNotif('+' + en.coins + ' COINS!', 2500);
                 SFX.ko(); SFX.coinGain();
+
+                // KO slow-mo and big effects
+                slowMoTimer = 800;
+                screenWarp = 600;
+                spawnSpeedLines(25, '#ff0000');
+                spawnImpactRing(W/2, H*0.35, '#ff0000', 150);
+                spawnParticles(W/2, H*0.35, 40, '#ff4444');
+                spawnDmgNum(W/2, H*0.25, 'K.O.!', '#ff0000', true);
+
                 combat.koTimer = 2200; state = ST.KO; return;
             }
         }
@@ -2412,22 +3655,22 @@ function updateCombat(dt) {
     let ai = getEnemyAI(en);
 
     if (!combat.enemyWindup) {
-        combat.enemyNext -= dt;
+        combat.enemyNext -= effectiveDt;
         if (combat.enemyNext <= 0) {
             combat.enemyWindup = true;
             combat.enemyWindupTimer = ai.windupTime;
             combat.enemyWindupHand = Math.random() < 0.5 ? 'left' : 'right';
-            // Pick weird attack type
             let atkTypes = getEnemyAttacks(en);
             combat.enemyAttackInfo = atkTypes[Math.floor(Math.random() * atkTypes.length)];
             combat.enemyComboCount = 0;
         }
     } else {
-        combat.enemyWindupTimer -= dt;
+        combat.enemyWindupTimer -= effectiveDt;
         if (combat.enemyWindupTimer <= 0) {
             if (combat.dodging) {
                 combat.msg = 'DODGED!'; combat.msgTimer = 400;
                 SFX.dodge();
+                spawnDmgNum(W/2, H*0.5, 'DODGE!', '#88ff88', false);
             } else {
                 let dmg = en.dmg[0] + Math.random() * (en.dmg[1] - en.dmg[0]);
                 dmg *= dm.pDmg;
@@ -2441,10 +3684,33 @@ function updateCombat(dt) {
                     combat.msg = combat.enemyAttackInfo ? combat.enemyAttackInfo.name : 'HIT!';
                     spawnParticles(W / 2, H * 0.8, 6, '#ff0000');
                     SFX.playerHit();
+
+                    // Blood overlay
+                    bloodOverlay = 800;
+                    bloodDrips = [];
+                    for (let bi = 0; bi < 3 + Math.floor(Math.random() * 4); bi++) {
+                        bloodDrips.push({
+                            x: Math.random() * W, y: Math.random() * H * 0.3,
+                            w: 2 + Math.random() * 4, speed: 0.5 + Math.random() * 1.5,
+                            alpha: 0.4 + Math.random() * 0.6
+                        });
+                    }
+
+                    // Damage number for enemy hit
+                    spawnDmgNum(W/2 + (Math.random()-0.5)*80, H*0.6, '-' + Math.floor(dmg), '#ff2222', dmg > 15);
+
+                    // Camera shake direction
+                    cameraTiltTarget = (Math.random() - 0.5) * 4;
+
+                    // Reset combo on getting hit
+                    if (comboCount > comboBest) comboBest = comboCount;
+                    comboCount = 0; comboTimer = 0;
                 } else {
                     let atkName = combat.enemyAttackInfo ? combat.enemyAttackInfo.name.replace('!', '') : 'HIT';
                     combat.msg = atkName + ' BLOCKED!';
                     SFX.block();
+                    spawnDmgNum(W/2, H*0.5, 'BLOCKED!', '#6688ff', false);
+                    spawnParticles(W/2, H*0.4, 4, '#6688ff');
                 }
             }
             combat.msgTimer = 400;
@@ -2452,7 +3718,6 @@ function updateCombat(dt) {
             if (combat.enemyComboCount < ai.maxCombo && Math.random() < ai.comboChance) {
                 combat.enemyWindupTimer = ai.windupTime * 0.5;
                 combat.enemyWindupHand = combat.enemyWindupHand === 'left' ? 'right' : 'left';
-                // Possibly pick new weird attack type for combo
                 let atkTypes = getEnemyAttacks(en);
                 combat.enemyAttackInfo = atkTypes[Math.floor(Math.random() * atkTypes.length)];
             } else {
@@ -2465,6 +3730,7 @@ function updateCombat(dt) {
                 if (player.score > saveData.highScore) saveData.highScore = player.score;
                 writeSave();
                 SFX.gameOver();
+                slowMoTimer = 600;
                 state = ST.GAMEOVER;
             }
         }
@@ -2482,6 +3748,15 @@ function startGame() {
     drinkCount = 0; drunkLevel = 0; drunkNotify = ''; drunkNotifyTimer = 0; drunkBlurAmount = 0; armBob = 0;
     particles = []; notifications = [];
     playerXp = 0;
+    // Reset new animation state
+    damageNumbers = []; speedLines = []; impactRings = [];
+    comboCount = 0; comboTimer = 0; comboDisplay = 0; comboBest = 0;
+    smoothPlayerHP = 100; smoothEnemyHP = 100;
+    bloodOverlay = 0; bloodDrips = [];
+    cameraTilt = 0; cameraTiltTarget = 0;
+    slowMoTimer = 0; slowMoFactor = 1;
+    screenWarp = 0; footstepTimer = 0;
+    initDust();
     loadLevel(0, 'start');
     startTransition('FLOOR 1: ' + LEVELS[0].name, () => {});
 }

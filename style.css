@@ -13,6 +13,73 @@ html, body {
     color: #ff0000;
 }
 
+/* ─── Loading Screen ─── */
+#loading-screen {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    background: radial-gradient(ellipse at center, #1a0000 0%, #000000 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    transition: opacity 0.6s ease;
+}
+
+.loading-title {
+    font-size: clamp(24px, 5vw, 48px);
+    font-weight: bold;
+    color: #ff0000;
+    text-shadow: 0 0 20px rgba(255,0,0,0.5), 0 0 60px rgba(255,0,0,0.2);
+    letter-spacing: 3px;
+    margin-bottom: 30px;
+    animation: title-pulse 2s ease-in-out infinite;
+}
+
+@keyframes title-pulse {
+    0%, 100% { text-shadow: 0 0 20px rgba(255,0,0,0.5), 0 0 60px rgba(255,0,0,0.2); }
+    50% { text-shadow: 0 0 30px rgba(255,0,0,0.7), 0 0 80px rgba(255,0,0,0.3); }
+}
+
+.loading-bar-container {
+    width: 300px;
+    height: 6px;
+    background: #220000;
+    border: 1px solid #440000;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 15px;
+}
+
+.loading-bar {
+    width: 0%;
+    height: 100%;
+    background: linear-gradient(90deg, #ff0000, #ff4400, #ff0000);
+    border-radius: 3px;
+    animation: loading-fill 1.2s ease-out forwards;
+    box-shadow: 0 0 8px rgba(255,0,0,0.5);
+}
+
+@keyframes loading-fill {
+    0% { width: 0%; }
+    50% { width: 65%; }
+    80% { width: 90%; }
+    100% { width: 100%; }
+}
+
+.loading-text {
+    font-size: 14px;
+    color: #884444;
+    letter-spacing: 4px;
+    animation: loading-blink 1s step-end infinite;
+}
+
+@keyframes loading-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
 .game-wrapper {
     display: flex;
     flex-direction: column;
@@ -21,7 +88,7 @@ html, body {
     width: 100vw;
     height: 100vh;
     padding: 4px;
-    background: #0a0000;
+    background: radial-gradient(ellipse at center, #0a0000 0%, #000000 100%);
 }
 
 canvas {
@@ -30,11 +97,24 @@ canvas {
     flex: 1 1 0;
     min-height: 0;
     border: 2px solid #aa0000;
-    box-shadow: 0 0 12px rgba(255,0,0,0.3), inset 0 0 8px rgba(255,0,0,0.05);
+    box-shadow:
+        0 0 12px rgba(255,0,0,0.3),
+        0 0 40px rgba(255,0,0,0.1),
+        inset 0 0 8px rgba(255,0,0,0.05),
+        inset 0 0 30px rgba(0,0,0,0.5);
     image-rendering: pixelated;
     cursor: crosshair;
     background: #000;
-    border-radius: 4px;
+    border-radius: 6px;
+    transition: box-shadow 0.3s ease;
+}
+
+canvas:hover {
+    box-shadow:
+        0 0 16px rgba(255,0,0,0.4),
+        0 0 50px rgba(255,0,0,0.15),
+        inset 0 0 8px rgba(255,0,0,0.05),
+        inset 0 0 30px rgba(0,0,0,0.5);
 }
 
 #controls-hint {
@@ -46,15 +126,33 @@ canvas {
     font-size: clamp(10px, 1.4vw, 15px);
     font-weight: bold;
     color: #ffffff;
-    background: rgba(20, 0, 0, 0.9);
-    text-shadow: 0 0 10px rgba(255,100,100,0.6);
+    background: linear-gradient(180deg, rgba(30, 0, 0, 0.95), rgba(10, 0, 0, 0.98));
+    text-shadow: 0 0 10px rgba(255,100,100,0.6), 0 1px 2px rgba(0,0,0,0.8);
     letter-spacing: 1px;
     text-align: center;
-    padding: 4px 12px;
+    padding: 6px 12px;
     white-space: normal;
     line-height: 1.6;
     border-top: 1px solid #440000;
     flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+}
+
+#controls-hint::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,0,0,0.03), transparent);
+    animation: hint-shimmer 8s ease-in-out infinite;
+}
+
+@keyframes hint-shimmer {
+    0%, 100% { left: -50%; }
+    50% { left: 100%; }
 }
 
 /* Responsive breakpoints */
