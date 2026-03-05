@@ -3552,17 +3552,10 @@ function renderMenu() {
     ctx.fillText('BOXING', W / 2, H * 0.26);
     ctx.shadowBlur = 0;
 
-    // Subtitle with typewriter shimmer
-    ctx.fillStyle = '#cc4444'; ctx.font = '14px Courier New';
-    let subtitle = '5 FLOORS \u2022 9 FIGHTERS \u2022 CLIMB TO THE TOP';
-    for (let i = 0; i < subtitle.length; i++) {
-        let charAlpha = 0.5 + Math.sin(t * 4 + i * 0.3) * 0.3;
-        ctx.fillStyle = 'rgba(204,68,68,' + charAlpha + ')';
-        let charX = W/2 - ctx.measureText(subtitle).width / 2 + ctx.measureText(subtitle.substring(0, i)).width;
-        ctx.textAlign = 'left';
-        ctx.fillText(subtitle[i], charX, H * 0.35);
-    }
+    // Subtitle
+    ctx.fillStyle = '#cc4444'; ctx.font = 'bold 14px Courier New';
     ctx.textAlign = 'center';
+    ctx.fillText('5 FLOORS \u2022 9 FIGHTERS \u2022 CLIMB TO THE TOP', W / 2, H * 0.35);
 
     let y = H * 0.46;
     for (let i = 0; i < MENU_OPTIONS.length; i++) {
