@@ -1225,11 +1225,202 @@ canvas.addEventListener('mousedown', e => {
     }
 });
 
+// ─── Mobile Touch Detection ──────────────────────────────────────────
+let isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
+// ─── Virtual Joystick State ──────────────────────────────────────────
+let vJoy = {
+    active: false,
+    touchId: null,
+    // Base position (center of joystick area)
+    baseX: 90, baseY: 0, // baseY set dynamically
+    // Current stick offset
+    dx: 0, dy: 0,
+    radius: 50,      // max stick displacement
+    deadZone: 8,
+};
+
+// ─── Touch Turn State (right side of screen) ─────────────────────────
+let touchTurn = {
+    active: false,
+    touchId: null,
+    startX: 0,
+    lastX: 0,
+};
+
+// ─── Mobile Explore Buttons ──────────────────────────────────────────
+let mobileExploreBtns = [
+    { id: 'stairs', label: 'STAIRS', x: 0, y: 0, w: 70, h: 36, visible: () => !!stairPrompt },
+    { id: 'drink', label: 'DRINK', x: 0, y: 0, w: 70, h: 36, visible: () => inventory.bottles > 0 },
+];
+
+function getTouchCanvasCoords(touch) {
+    let rect = canvas.getBoundingClientRect();
+    let scaleX = W / rect.width;
+    let scaleY = H / rect.height;
+    return { x: (touch.clientX - rect.left) * scaleX, y: (touch.clientY - rect.top) * scaleY };
+}
+
+// Position mobile explore buttons dynamically
+function updateMobileExploreBtnPositions() {
+    // Stairs button - right side, mid-height
+    mobileExploreBtns[0].x = W - 80;
+    mobileExploreBtns[0].y = H * 0.35;
+    // Drink button - right side, below stairs
+    mobileExploreBtns[1].x = W - 80;
+    mobileExploreBtns[1].y = H * 0.35 + 46;
+}
+
+function hitTestMobileExploreBtn(x, y) {
+    for (let btn of mobileExploreBtns) {
+        if (!btn.visible()) continue;
+        if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) return btn.id;
+    }
+    return null;
+}
+
+// ─── Touch Event Handlers ────────────────────────────────────────────
+canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    ensureAudio();
+    let rect = canvas.getBoundingClientRect();
+
+    for (let i = 0; i < e.changedTouches.length; i++) {
+        let touch = e.changedTouches[i];
+        let { x, y } = getTouchCanvasCoords(touch);
+
+        // In explore mode, handle joystick and turn areas
+        if (state === ST.EXPLORE) {
+            updateMobileExploreBtnPositions();
+            // Check mobile buttons first
+            let btnHit = hitTestMobileExploreBtn(x, y);
+            if (btnHit === 'stairs') { useStairs(); continue; }
+            if (btnHit === 'drink') { drinkBottle(); continue; }
+
+            // Left half = virtual joystick
+            if (x < W * 0.4 && !vJoy.active) {
+                vJoy.active = true;
+                vJoy.touchId = touch.identifier;
+                vJoy.baseX = x;
+                vJoy.baseY = y;
+                vJoy.dx = 0;
+                vJoy.dy = 0;
+                continue;
+            }
+            // Right half = turn control
+            if (x >= W * 0.4 && !touchTurn.active) {
+                touchTurn.active = true;
+                touchTurn.touchId = touch.identifier;
+                touchTurn.startX = x;
+                touchTurn.lastX = x;
+                continue;
+            }
+        }
+        // In combat, also handle swipe-dodge via touchTurn area
+        else if (state === ST.COMBAT) {
+            // Dodge left/right zones (same as mouse)
+            if (y >= H * 0.2 && y <= H * 0.65) {
+                if (x < W * 0.12) { handleCombatKey('a', 'a'); continue; }
+                if (x > W * 0.88) { handleCombatKey('d', 'd'); continue; }
+            }
+            // Fall through to generic click handler for combat buttons
+            handleCanvasClick(x, y, 'left');
+            continue;
+        }
+        // Dance battle: arrow input buttons
+        else if (state === ST.DANCE_BATTLE) {
+            if (dance.phase === 1) {
+                let dBtnW = 56, dBtnH = 56, dBtnGap = 12;
+                let dBtnY = H - dBtnH - 10;
+                let danceDirs = ['left', 'up', 'down', 'right'];
+                let dTotalW = 4 * dBtnW + 3 * dBtnGap;
+                let dStartXt = (W - dTotalW) / 2;
+                let hitDir = null;
+                for (let di = 0; di < 4; di++) {
+                    let dbx = dStartXt + di * (dBtnW + dBtnGap);
+                    if (x >= dbx && x <= dbx + dBtnW && y >= dBtnY && y <= dBtnY + dBtnH) {
+                        hitDir = danceDirs[di];
+                        break;
+                    }
+                }
+                if (hitDir) { hitDanceArrow(hitDir); continue; }
+            }
+            // Fall through for continue/results clicks
+            handleCanvasClick(x, y, 'left');
+        }
+        // For all other states, treat touch as a left click
+        else {
+            handleCanvasClick(x, y, 'left');
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+        let touch = e.changedTouches[i];
+        let { x, y } = getTouchCanvasCoords(touch);
+
+        // Virtual joystick movement
+        if (vJoy.active && touch.identifier === vJoy.touchId) {
+            vJoy.dx = x - vJoy.baseX;
+            vJoy.dy = y - vJoy.baseY;
+            // Clamp to radius
+            let dist = Math.sqrt(vJoy.dx * vJoy.dx + vJoy.dy * vJoy.dy);
+            if (dist > vJoy.radius) {
+                vJoy.dx = (vJoy.dx / dist) * vJoy.radius;
+                vJoy.dy = (vJoy.dy / dist) * vJoy.radius;
+            }
+            continue;
+        }
+        // Turn control
+        if (touchTurn.active && touch.identifier === touchTurn.touchId) {
+            let deltaX = x - touchTurn.lastX;
+            touchTurn.lastX = x;
+            // Apply turning directly to player angle
+            if (state === ST.EXPLORE) {
+                player.angle += deltaX * 0.006 * settings.sensitivity;
+            }
+            continue;
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+        let touch = e.changedTouches[i];
+        if (vJoy.active && touch.identifier === vJoy.touchId) {
+            vJoy.active = false;
+            vJoy.touchId = null;
+            vJoy.dx = 0;
+            vJoy.dy = 0;
+        }
+        if (touchTurn.active && touch.identifier === touchTurn.touchId) {
+            touchTurn.active = false;
+            touchTurn.touchId = null;
+        }
+    }
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', e => {
+    // Reset all touch state on cancel
+    vJoy.active = false; vJoy.touchId = null; vJoy.dx = 0; vJoy.dy = 0;
+    touchTurn.active = false; touchTurn.touchId = null;
+}, { passive: false });
+
+// Prevent page scroll and zoom on the whole document when touching the game
+document.addEventListener('touchmove', e => {
+    if (e.target === canvas || e.target.closest('.game-wrapper')) e.preventDefault();
+}, { passive: false });
+
 function getCombatBtnLayout(en) {
-    let btnH = 40, btnW = 90, gap = 10;
+    let btnH = isMobile ? 48 : 40, btnW = isMobile ? 80 : 90, gap = isMobile ? 6 : 10;
     let allBtns = en && en.isBag
         ? [{l:'JAB',k:'1'},{l:'CROSS',k:'2'},{l:'UPPER',k:'3'}]
-        : [{l:'JAB',k:'1'},{l:'CROSS',k:'2'},{l:'UPPER',k:'3'},{l:'SPECIAL',k:'Q'},{l:'BLOCK',k:' '},{l:'DRINK',k:'Shift'}];
+        : isMobile
+            ? [{l:'JAB',k:'1'},{l:'CROSS',k:'2'},{l:'UPPER',k:'3'},{l:'SPEC',k:'Q'},{l:'BLOCK',k:' '},{l:'DRINK',k:'Shift'},{l:'SLIP',k:'s'}]
+            : [{l:'JAB',k:'1'},{l:'CROSS',k:'2'},{l:'UPPER',k:'3'},{l:'SPECIAL',k:'Q'},{l:'BLOCK',k:' '},{l:'DRINK',k:'Shift'}];
     let row1 = allBtns.slice(0, en && en.isBag ? 3 : 4);
     let row2 = allBtns.slice(en && en.isBag ? 3 : 4);
     return { row1, row2, btnH, btnW, gap };
@@ -2550,8 +2741,11 @@ function renderCombatScene() {
         for (let bi = 0; bi < row2.length; bi++) {
             let bx = r2X + bi * (bW + bGap);
             let isBlock = row2[bi].k === ' ';
-            let bg = isBlock ? (combat.blocking ? 'rgba(100,140,255,0.4)' : 'rgba(40,60,120,0.3)') : 'rgba(30,100,30,0.35)';
-            let border = isBlock ? '#6688ff' : '#44cc44';
+            let isSlip = row2[bi].k === 's';
+            let bg = isBlock ? (combat.blocking ? 'rgba(100,140,255,0.4)' : 'rgba(40,60,120,0.3)')
+                   : isSlip ? 'rgba(120,80,0,0.35)'
+                   : 'rgba(30,100,30,0.35)';
+            let border = isBlock ? '#6688ff' : isSlip ? '#ff8800' : '#44cc44';
             let txt = '#ffffff';
             drawUIButton(bx, r2Y, bW, bH, row2[bi].l, bg, border, txt);
         }
@@ -3964,7 +4158,7 @@ function renderExplore() {
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
 
     // Head bob effect when moving
-    let isMoving = keys['w'] || keys['arrowup'] || keys['s'] || keys['arrowdown'];
+    let isMoving = keys['w'] || keys['arrowup'] || keys['s'] || keys['arrowdown'] || (vJoy.active && Math.sqrt(vJoy.dx*vJoy.dx+vJoy.dy*vJoy.dy) > vJoy.deadZone);
     if (isMoving) {
         let bobAmt = Math.sin(Date.now() * 0.008) * 3;
         ctx.save();
@@ -4015,6 +4209,12 @@ function renderExplore() {
         }
     }
 
+    // Render virtual joystick overlay (mobile)
+    if (isMobile) {
+        renderVirtualJoystick();
+        renderMobileExploreButtons();
+    }
+
     // Enhanced crosshair with targeting reticle
     let nearEnemy = false;
     for (let e of enemies) {
@@ -4039,6 +4239,72 @@ function renderExplore() {
         ctx.beginPath(); ctx.arc(W/2, H/2, 1.5, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalAlpha = 1;
+}
+
+// ─── Mobile Touch UI Rendering ───────────────────────────────────────
+function renderVirtualJoystick() {
+    if (state !== ST.EXPLORE) return;
+    let baseAlpha = vJoy.active ? 0.45 : 0.2;
+    let bx = vJoy.active ? vJoy.baseX : 90;
+    let by = vJoy.active ? vJoy.baseY : H - 100;
+
+    // Outer ring
+    ctx.globalAlpha = baseAlpha;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bx, by, vJoy.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner fill
+    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+    ctx.beginPath();
+    ctx.arc(bx, by, vJoy.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Stick knob
+    let knobX = bx + vJoy.dx;
+    let knobY = by + vJoy.dy;
+    ctx.fillStyle = vJoy.active ? 'rgba(255,80,80,0.6)' : 'rgba(200,200,200,0.3)';
+    ctx.beginPath();
+    ctx.arc(knobX, knobY, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = vJoy.active ? '#ff6666' : '#aaaaaa';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(knobX, knobY, 20, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Direction arrows on outer ring
+    ctx.fillStyle = 'rgba(255,255,255,' + (baseAlpha * 0.8) + ')';
+    ctx.font = 'bold 14px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('\u25B2', bx, by - vJoy.radius - 10); // Up
+    ctx.fillText('\u25BC', bx, by + vJoy.radius + 10); // Down
+    ctx.fillText('\u25C0', bx - vJoy.radius - 10, by); // Left
+    ctx.fillText('\u25B6', bx + vJoy.radius + 10, by); // Right
+
+    ctx.globalAlpha = 1;
+    ctx.textBaseline = 'alphabetic';
+}
+
+function renderMobileExploreButtons() {
+    if (state !== ST.EXPLORE) return;
+    updateMobileExploreBtnPositions();
+    for (let btn of mobileExploreBtns) {
+        if (!btn.visible()) continue;
+        let bg, border, txt;
+        if (btn.id === 'stairs') {
+            bg = 'rgba(0,180,80,0.35)';
+            border = '#00ff88';
+            txt = '#ffffff';
+        } else {
+            bg = 'rgba(30,100,30,0.35)';
+            border = '#44cc44';
+            txt = '#ffffff';
+        }
+        drawUIButton(btn.x, btn.y, btn.w, btn.h, btn.label, bg, border, txt);
+    }
 }
 
 // ─── Visual Effects ──────────────────────────────────────────────────
@@ -4523,6 +4789,30 @@ function renderDanceBattle() {
         }
     }
 
+    // Mobile dance buttons
+    if (isMobile && dance.phase === 1) {
+        let dBtnW = 56, dBtnH = 56, dBtnGap = 12;
+        let dBtnY = H - dBtnH - 10;
+        let danceDirs = ['left', 'up', 'down', 'right'];
+        let danceSyms = { left: '◀', up: '▲', down: '▼', right: '▶' };
+        let danceBtnColors = { left: '#ff4488', up: '#44ff88', down: '#4488ff', right: '#ffaa44' };
+        let dTotalW = 4 * dBtnW + 3 * dBtnGap;
+        let dStartX = (W - dTotalW) / 2;
+        for (let di = 0; di < 4; di++) {
+            let dbx = dStartX + di * (dBtnW + dBtnGap);
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(dbx, dBtnY, dBtnW, dBtnH);
+            ctx.strokeStyle = danceBtnColors[danceDirs[di]];
+            ctx.lineWidth = 2;
+            ctx.strokeRect(dbx, dBtnY, dBtnW, dBtnH);
+            ctx.fillStyle = danceBtnColors[danceDirs[di]];
+            ctx.font = 'bold 24px Courier New';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(danceSyms[danceDirs[di]], dbx + dBtnW / 2, dBtnY + dBtnH / 2);
+        }
+        ctx.textBaseline = 'alphabetic';
+    }
+
     renderScanlines();
     ctx.textBaseline = 'alphabetic';
 }
@@ -4664,6 +4954,25 @@ function updateExplore(dt) {
     if ((keys['s'] || keys['arrowdown']) && state === ST.EXPLORE) { moveX -= Math.cos(player.angle) * moveSpeed * dt; moveY -= Math.sin(player.angle) * moveSpeed * dt; isMoving = true; }
     if ((keys['a'] || keys['arrowleft']) && state === ST.EXPLORE) player.angle -= turnSpeed * dt;
     if ((keys['d'] || keys['arrowright']) && state === ST.EXPLORE) player.angle += turnSpeed * dt;
+
+    // Virtual joystick movement (mobile)
+    if (vJoy.active) {
+        let jDist = Math.sqrt(vJoy.dx * vJoy.dx + vJoy.dy * vJoy.dy);
+        if (jDist > vJoy.deadZone) {
+            let norm = (jDist - vJoy.deadZone) / (vJoy.radius - vJoy.deadZone);
+            norm = Math.min(1, norm);
+            // Forward/backward (Y axis: negative = forward)
+            let fwd = -vJoy.dy / jDist * norm;
+            moveX += Math.cos(player.angle) * moveSpeed * dt * fwd;
+            moveY += Math.sin(player.angle) * moveSpeed * dt * fwd;
+            if (Math.abs(fwd) > 0.2) isMoving = true;
+            // Left/right turning (X axis)
+            let turn = vJoy.dx / jDist * norm;
+            if (Math.abs(turn) > 0.3) {
+                player.angle += turn * turnSpeed * 1.5 * dt;
+            }
+        }
+    }
 
     // Mouse-based turning
     if (mouseOnCanvas) {

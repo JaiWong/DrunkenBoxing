@@ -197,3 +197,62 @@ canvas:hover {
         font-size: clamp(7px, 2.5vw, 11px);
     }
 }
+
+/* ─── Mobile Touch Support ─── */
+
+/* Show/hide controls hints based on touch capability */
+.mobile-hint { display: none; }
+.desktop-hint { display: inline; }
+
+@media (pointer: coarse) {
+    .mobile-hint { display: inline; }
+    .desktop-hint { display: none; }
+}
+
+/* Prevent touch callout, selection, and overscroll on mobile */
+@media (pointer: coarse), (hover: none) {
+    html, body {
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    canvas {
+        touch-action: none;
+        -webkit-touch-callout: none;
+    }
+
+    .game-wrapper {
+        touch-action: none;
+    }
+
+    #controls-hint {
+        min-height: 32px;
+        font-size: clamp(9px, 2.5vw, 13px);
+        padding: 4px 8px;
+    }
+}
+
+/* Landscape mobile: hide hint bar, max canvas */
+@media (pointer: coarse) and (max-height: 500px) {
+    #controls-hint {
+        display: none;
+    }
+    .game-wrapper { padding: 0; }
+    canvas {
+        width: 100vw;
+        border-width: 1px;
+        border-radius: 0;
+    }
+}
+
+/* Safe area insets for notched phones */
+@supports (padding: env(safe-area-inset-bottom)) {
+    .game-wrapper {
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+    }
+}
