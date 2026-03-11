@@ -495,6 +495,7 @@ const AWARDS_LIST = [
     { id: 'bar_tab', name: "Runnin' Up The Bar Tab", desc: "Drank 5 or more bottles in a single run. Your liver filed a complaint.", icon: '🍺', condition: 'drink_5' },
     { id: 'speed_demon', name: 'Speed Demon', desc: "Knocked out an enemy in under 15 seconds. Blink and you miss it.", icon: '⏱️', condition: 'fast_ko' },
     { id: 'boss_slayer', name: 'King Slayer', desc: "Defeated Red King. The throne is yours now.", icon: '👑', condition: 'beat_boss' },
+    { id: 'superior_human', name: 'Superior Human', desc: "Beat the Red King on a mobile device. You are beyond mortal.", icon: '🧠', condition: 'mobile_boss' },
     { id: 'first_blood', name: 'First Blood', desc: "Won your very first fight. Everyone starts somewhere.", icon: '🩸', condition: 'first_win' },
     { id: 'full_clear', name: 'Clean Sweep', desc: "Defeated all 9 fighters in a single run. Nobody was spared.", icon: '🧹', condition: 'beat_all' },
     { id: 'silver_tongue', name: 'Silver Tongue', desc: "Talked your way out of 3+ fights in one run. You should be a lawyer.", icon: '👅', condition: 'talk_3' },
@@ -5485,6 +5486,7 @@ function updateCombat(dt) {
                 if (combat.fightTime && combat.fightTime < 8000) grantAward('speed_demon');
                 let vd = VILLAIN_DATA[en.name];
                 if (vd && vd.floor === 5) grantAward('boss_slayer');
+                if (vd && vd.floor === 5 && isMobile) grantAward('superior_human');
                 return;
             }
         }
