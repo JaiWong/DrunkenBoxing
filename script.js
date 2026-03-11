@@ -134,6 +134,13 @@ function getEnemyAttacks(en) {
             { name: 'PUNCHED!', type: 'punch' },
             { name: 'ELBOWED!', type: 'elbow' },
         ];
+        case 'peekaboo': return [
+            { name: 'ROLLING HOOK!', type: 'hook' },
+            { name: 'COUNTER HOOK!', type: 'hook' },
+            { name: 'UPPERCUT!', type: 'uppercut' },
+            { name: 'BODY SHOT!', type: 'body' },
+            { name: 'OVERHAND RIGHT!', type: 'overhand' },
+        ];
         case 'wild': return [
             { name: 'BIT YOU!', type: 'bite' },
             { name: 'SLAPPED!', type: 'slap' },
@@ -142,11 +149,12 @@ function getEnemyAttacks(en) {
             { name: 'LICKED YOU!', type: 'lick' },
         ];
         case 'boss': return [
-            { name: 'PUNCHED!', type: 'punch' },
+            { name: 'KING HOOK!', type: 'hook' },
             { name: 'HEADBUTT!', type: 'headbutt' },
-            { name: 'BIT YOU!', type: 'bite' },
-            { name: 'ELBOWED!', type: 'elbow' },
-            { name: 'SLAPPED!', type: 'slap' },
+            { name: 'THRONE BREAKER!', type: 'uppercut' },
+            { name: 'GUT CRUSHER!', type: 'body' },
+            { name: 'BACKHAND!', type: 'slap' },
+            { name: 'ELBOW SMASH!', type: 'elbow' },
         ];
         default: return [{ name: 'HIT!', type: 'punch' }];
     }
@@ -246,9 +254,9 @@ const VILLAIN_DATA = {
         headSize: 26, bodyW: 70, bodyH: 80,
     },
     'Iron Mike': {
-        intro: ["You made it this far? Respect.", "But the Brawler don't lose. Ever.", "Say goodnight."],
-        ko: "H-how... I never been knocked down before...",
-        style: 'brawler',
+        intro: ["You made it this far? Respect.", "But Iron Mike don't lose. EVER.", "I'll slip every punch you throw and put you to sleep."],
+        ko: "H-how... nobody's ever cracked my peek-a-boo...",
+        style: 'peekaboo',
         bodyColor: '#553333', skinColor: '#885555', gloveColor: '#cc2222',
         headSize: 30, bodyW: 90, bodyH: 95,
     },
@@ -274,11 +282,11 @@ const VILLAIN_DATA = {
         headSize: 24, bodyW: 65, bodyH: 75,
     },
     'Red King': {
-        intro: ["So you're the one causing trouble.", "I run this whole building.", "Nobody leaves standing. NOBODY.", "Come. Show me what you got."],
-        ko: "Impossible... the Red King... dethroned...",
+        intro: ["You made it to my floor.", "Every man in this shelter answers to ME.", "I didn't become king by losing.", "I'll put you down like every other fool who tried."],
+        ko: "No... the shelter... was all I had... you... you're the king now...",
         style: 'boss',
         bodyColor: '#330000', skinColor: '#aa2222', gloveColor: '#ff0000',
-        headSize: 32, bodyW: 100, bodyH: 100,
+        headSize: 34, bodyW: 105, bodyH: 105,
     }
 };
 
@@ -286,7 +294,7 @@ const VILLAIN_DATA = {
 // Tile: 0=floor, 1=wall, 2=stairs-up, 3=stairs-down
 const LEVELS = [
     { // Floor 1: The Street
-        name: 'THE STREET', floor: 1,
+        name: 'THE LOBBY', floor: 1,
         wallTint: [1, 0.15, 0.1],
         floorC1: '#080000', floorC2: '#1a0000',
         map: [
@@ -315,7 +323,7 @@ const LEVELS = [
         spawnFromAbove: { x: 15.5, y: 13.5, angle: Math.PI },
     },
     { // Floor 2: The Alley
-        name: 'THE ALLEY', floor: 2,
+        name: 'THE BUNKS', floor: 2,
         wallTint: [0.7, 0.35, 0.1],
         floorC1: '#080400', floorC2: '#1a0a00',
         map: [
@@ -344,7 +352,7 @@ const LEVELS = [
         spawnFromAbove: { x: 15.5, y: 13.5, angle: Math.PI },
     },
     { // Floor 3: The Warehouse
-        name: 'THE WAREHOUSE', floor: 3,
+        name: 'THE MESS HALL', floor: 3,
         wallTint: [0.55, 0.55, 0.15],
         floorC1: '#040400', floorC2: '#0a0a00',
         map: [
@@ -365,7 +373,7 @@ const LEVELS = [
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
         ],
         enemies: [
-            { x: 10, y: 5, name: 'Iron Mike', hp: 80, dmg: [10, 18], interval: 2600, coins: 200 },
+            { x: 10, y: 5, name: 'The Butcher', hp: 80, dmg: [8, 15], interval: 1800, coins: 200 },
             { x: 4, y: 9, name: 'Tank', hp: 95, dmg: [12, 20], interval: 2800, coins: 250 },
         ],
         bottles: [{ x: 15.5, y: 2.5 }, { x: 8.5, y: 7.5 }],
@@ -373,7 +381,7 @@ const LEVELS = [
         spawnFromAbove: { x: 15.5, y: 13.5, angle: Math.PI },
     },
     { // Floor 4: The Penthouse
-        name: 'THE PENTHOUSE', floor: 4,
+        name: 'THE QUARTERS', floor: 4,
         wallTint: [0.45, 0.15, 0.65],
         floorC1: '#040008', floorC2: '#0a001a',
         map: [
@@ -394,7 +402,7 @@ const LEVELS = [
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
         ],
         enemies: [
-            { x: 3, y: 3, name: 'The Butcher', hp: 100, dmg: [8, 15], interval: 1400, coins: 300 },
+            { x: 3, y: 3, name: 'Iron Mike', hp: 130, dmg: [14, 26], interval: 1400, coins: 400 },
             { x: 16, y: 7, name: 'Shadow', hp: 85, dmg: [10, 18], interval: 2200, coins: 350 },
         ],
         bottles: [{ x: 9.5, y: 7.5 }, { x: 16.5, y: 1.5 }, { x: 3.5, y: 11.5 }],
@@ -402,7 +410,7 @@ const LEVELS = [
         spawnFromAbove: { x: 15.5, y: 13.5, angle: Math.PI },
     },
     { // Floor 5: The Arena (Boss) — full of punching bags
-        name: 'THE ARENA', floor: 5,
+        name: 'THE THRONE ROOM', floor: 5,
         wallTint: [1, 0.08, 0.08],
         floorC1: '#0a0000', floorC2: '#220000',
         map: [
@@ -423,7 +431,7 @@ const LEVELS = [
             [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
         ],
         enemies: [
-            { x: 10, y: 3, name: 'Red King', hp: 150, dmg: [12, 24], interval: 1600, coins: 1000 },
+            { x: 10, y: 3, name: 'Red King', hp: 200, dmg: [18, 34], interval: 1200, coins: 1000 },
         ],
         bags: [
             { x: 6,  y: 10, hp: 30 },
@@ -617,14 +625,15 @@ const DIALOGUE_TREES = {
     },
     'Red King': {
         lines: [
-            { speaker: 'Red King', text: "So you're the one causing trouble." },
-            { speaker: 'Red King', text: "I run this whole building." },
-            { speaker: 'Red King', text: "Nobody leaves standing. NOBODY." },
+            { speaker: 'Red King', text: "So you're the one who's been fighting through my shelter." },
+            { speaker: 'Red King', text: "Every man in this building bows to me." },
+            { speaker: 'Red King', text: "I built this kingdom from NOTHING. These fists made me KING." },
+            { speaker: 'Red King', text: "And you think you can just walk up here and take my crown?" },
             { speaker: 'You', text: "..." },
             { choices: [
-                { text: "Let's settle this like real men... DANCE BATTLE!", result: 'dance', reply: "...DANCE BATTLE?! You know what? I respect the audacity. Let's GROOVE." },
-                { text: "Come. Show me what you got.", result: 'fight', reply: "Gladly. You'll regret those words." },
-                { text: "I've beaten everyone below you. Your turn.", result: 'fight', reply: "Those were PAWNS. I am the KING." },
+                { text: "Let's settle this like real men... DANCE BATTLE!", result: 'dance', reply: "...DANCE BATTLE?! Ha! Even the King needs to let loose sometimes. Let's GROOVE." },
+                { text: "This shelter deserves better than you.", result: 'fight', reply: "BETTER?! I kept these men ALIVE. Now I'll put YOU down." },
+                { text: "I've beaten every man below you. You're next.", result: 'fight', reply: "Those were my SUBJECTS. I am the KING. There's levels to this." },
             ]},
         ]
     },
@@ -645,24 +654,24 @@ let qte = {
 };
 
 function startQTE() {
-    let count = 5 + Math.floor(Math.random() * 4); // 5-8 circles
+    let count = 6 + Math.floor(Math.random() * 4); // 6-9 circles
     qte.circles = [];
     for (let i = 0; i < count; i++) {
         qte.circles.push({
             x: 80 + Math.random() * (W - 160),
             y: 60 + Math.random() * (H - 160),
-            r: 28 + Math.random() * 12,
+            r: 24 + Math.random() * 12,       // slightly smaller targets (was 28-40, now 24-36)
             hit: false,
-            spawnDelay: i * 250,   // stagger appearance
+            spawnDelay: i * 220,               // slightly faster stagger (was 250)
             pulse: Math.random() * Math.PI * 2,
-            shrinkTimer: 2000 + Math.random() * 800,  // time before it disappears
-            shrinkMax: 2000 + Math.random() * 800,
+            shrinkTimer: 1800 + Math.random() * 700,  // slightly faster disappear (was 2000-2800, now 1800-2500)
+            shrinkMax: 1800 + Math.random() * 700,
         });
     }
     qte.total = count;
     qte.clicked = 0;
     qte.timer = 0;
-    qte.timeLimit = 3000 + count * 350;
+    qte.timeLimit = 3500 + count * 320;      // moderate overall time
     qte.done = false;
     qte.resultTimer = 0;
     qte.fadeIn = 0;
@@ -950,6 +959,7 @@ let smoothEnemyHP = 100;
 // ─── Blood Screen Overlay ────────────────────────────────────────────
 let bloodOverlay = 0;
 let bloodDrips = [];
+let hitRedFlash = 0;  // instant red flash on hit
 
 // ─── Speed Lines ─────────────────────────────────────────────────────
 let speedLines = [];
@@ -1291,8 +1301,26 @@ canvas.addEventListener('touchstart', e => {
 
         // In explore mode, handle joystick and turn areas
         if (state === ST.EXPLORE) {
+            // Check pause button first
+            if (hitTestPauseBtn(x, y)) { activatePause(ST.EXPLORE); continue; }
+            // Stats button
+            if (x >= 10 && x <= 90 && y >= 10 && y <= 38) { statsOpen = !statsOpen; SFX.menuMove(); continue; }
+            // Stair prompt area (the rendered green bar)
+            if (stairPrompt) {
+                let stBW = 240, stBH = 36;
+                let stBX = W / 2 - stBW / 2, stBY = H / 2 + 32;
+                if (x >= stBX && x <= stBX + stBW && y >= stBY && y <= stBY + stBH) { useStairs(); continue; }
+            }
+            // Drink button inside stats panel
+            if (statsOpen) {
+                let alive = enemies.filter(e => e.alive && !e.isBag).length;
+                let bags = enemies.filter(e => e.alive && e.isBag).length;
+                let drBtnY = 44 + 18 + 18 + 18 + (bags > 0 ? 18 : 0) - 2;
+                if (x >= 16 && x <= 184 && y >= drBtnY && y <= drBtnY + 22) { drinkBottle(); continue; }
+            }
+
             updateMobileExploreBtnPositions();
-            // Check mobile buttons first
+            // Check mobile buttons
             let btnHit = hitTestMobileExploreBtn(x, y);
             if (btnHit === 'stairs') { useStairs(); continue; }
             if (btnHit === 'drink') { drinkBottle(); continue; }
@@ -1318,6 +1346,8 @@ canvas.addEventListener('touchstart', e => {
         }
         // In combat, also handle swipe-dodge via touchTurn area
         else if (state === ST.COMBAT) {
+            // Pause button
+            if (hitTestPauseBtn(x, y)) { activatePause(ST.COMBAT); continue; }
             // Dodge left/right zones (same as mouse)
             if (y >= H * 0.2 && y <= H * 0.65) {
                 if (x < W * 0.12) { handleCombatKey('a', 'a'); continue; }
@@ -2384,15 +2414,44 @@ function drawXPBar(x, y, w, h) {
     // Pulsing glow when full
     if (full) {
         let pulse = 0.6 + 0.4 * Math.sin(Date.now() * 0.006);
+        // Outer glow aura
+        ctx.shadowColor = '#ffcc00'; ctx.shadowBlur = 18 + 8 * Math.sin(Date.now() * 0.008);
         ctx.fillStyle = 'rgba(255,200,0,' + pulse + ')';
     } else {
+        ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0;
         ctx.fillStyle = '#cc8800';
     }
     ctx.fillRect(x, y, w * pct, h);
+    ctx.shadowBlur = 0;
     ctx.strokeStyle = full ? '#ffcc00' : '#886600'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
     ctx.fillStyle = full ? '#ffdd00' : '#ffffff'; ctx.font = '11px Courier New'; ctx.textAlign = 'left';
     let label = full ? 'XP: READY! [Q]' : 'XP: ' + Math.floor(playerXp) + '/' + MAX_XP;
     ctx.fillText(label, x, y - 3);
+}
+
+// Big pulsing SPECIAL READY overlay for combat
+function drawSpecialReadyOverlay() {
+    if (playerXp < MAX_XP) return;
+    let t = Date.now() * 0.004;
+    let pulse = 0.5 + 0.5 * Math.sin(t);
+    let scale = 1.0 + 0.08 * Math.sin(t * 1.3);
+    // Screen-edge golden glow
+    ctx.save();
+    let edgeGrad = ctx.createRadialGradient(W / 2, H / 2, W * 0.3, W / 2, H / 2, W * 0.55);
+    edgeGrad.addColorStop(0, 'rgba(255,200,0,0)');
+    edgeGrad.addColorStop(1, 'rgba(255,180,0,' + (0.08 + 0.06 * pulse) + ')');
+    ctx.fillStyle = edgeGrad;
+    ctx.fillRect(0, 0, W, H);
+    // Pulsing text
+    ctx.translate(W / 2, H - 60);
+    ctx.scale(scale, scale);
+    ctx.font = 'bold 22px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 20;
+    ctx.fillStyle = 'rgba(255,220,0,' + (0.7 + 0.3 * pulse) + ')';
+    ctx.fillText('\u2605 SPECIAL READY! [Q] \u2605', 0, 0);
+    ctx.shadowBlur = 0;
+    ctx.restore();
 }
 
 // ─── Explore HUD ─────────────────────────────────────────────────────
@@ -2642,6 +2701,9 @@ function renderCombatScene() {
     // XP Bar
     drawXPBar(W / 2 - 100, 36, 200, 10);
 
+    // Special move readiness overlay
+    drawSpecialReadyOverlay();
+
     // Combo counter display
     if (comboCount >= 2) {
         let comboAlpha = Math.min(1, comboTimer / 400);
@@ -2682,6 +2744,13 @@ function renderCombatScene() {
         edgeGrad.addColorStop(0, 'rgba(255,0,0,0)');
         edgeGrad.addColorStop(1, 'rgba(200,0,0,' + (flashAlpha * 0.5) + ')');
         ctx.fillStyle = edgeGrad; ctx.fillRect(0, 0, W, H);
+    }
+
+    // Instant red flash on hit
+    if (hitRedFlash > 0) {
+        let rAlpha = Math.min(0.45, hitRedFlash / 180 * 0.45);
+        ctx.fillStyle = 'rgba(255,0,0,' + rAlpha + ')';
+        ctx.fillRect(0, 0, W, H);
     }
 
     // Blood overlay (persists briefly after taking damage)
@@ -3784,7 +3853,7 @@ function renderMenu() {
     // Subtitle
     ctx.fillStyle = '#cc4444'; ctx.font = 'bold 14px Courier New';
     ctx.textAlign = 'center';
-    ctx.fillText('5 FLOORS \u2022 9 FIGHTERS \u2022 CLIMB TO THE TOP', W / 2, H * 0.35);
+    ctx.fillText('5 FLOORS \u2022 THE SHELTER \u2022 DETHRONE THE KING', W / 2, H * 0.35);
 
     let y = H * 0.46;
     for (let i = 0; i < MENU_OPTIONS.length; i++) {
@@ -4457,7 +4526,7 @@ function renderQTE() {
 
         if (c.hit) {
             // Hit effect - expanding ring
-            let hitProg = Math.min(1, (elapsed - c.spawnDelay) * 0.005);
+            let hitProg = Math.min(1, elapsed * 0.003);
             ctx.globalAlpha = 1 - hitProg;
             ctx.strokeStyle = '#44ff44'; ctx.lineWidth = 3;
             ctx.beginPath(); ctx.arc(c.x, c.y, c.r + hitProg * 30, 0, Math.PI * 2); ctx.stroke();
@@ -5122,12 +5191,13 @@ function startCombat(enemy) {
 function getEnemyAI(en) {
     let vd = VILLAIN_DATA[en.name] || {};
     switch (vd.style || 'brawler') {
-        case 'speedster': return { windupTime: 300, comboChance: 0.6, maxCombo: 3 };
-        case 'counter':   return { windupTime: 650, comboChance: 0.3, maxCombo: 2 };
-        case 'brawler':   return { windupTime: 550, comboChance: 0.2, maxCombo: 1 };
-        case 'wild':      return { windupTime: 350, comboChance: 0.7, maxCombo: 4 };
-        case 'boss':      return { windupTime: 400, comboChance: 0.5, maxCombo: 3 };
-        default:          return { windupTime: 500, comboChance: 0.2, maxCombo: 1 };
+        case 'speedster': return { windupTime: 300, comboChance: 0.6, maxCombo: 3, rollDodgeChance: 0 };
+        case 'counter':   return { windupTime: 650, comboChance: 0.3, maxCombo: 2, rollDodgeChance: 0 };
+        case 'brawler':   return { windupTime: 550, comboChance: 0.2, maxCombo: 1, rollDodgeChance: 0 };
+        case 'peekaboo':  return { windupTime: 350, comboChance: 0.65, maxCombo: 3, rollDodgeChance: 0.40 };
+        case 'wild':      return { windupTime: 350, comboChance: 0.7, maxCombo: 4, rollDodgeChance: 0 };
+        case 'boss':      return { windupTime: 300, comboChance: 0.7, maxCombo: 4, rollDodgeChance: 0.25 };
+        default:          return { windupTime: 500, comboChance: 0.2, maxCombo: 1, rollDodgeChance: 0 };
     }
 }
 
@@ -5175,6 +5245,8 @@ function updateCombat(dt) {
             drip.y += drip.speed * dt * 0.01;
         }
     }
+    // Red flash decay (fast)
+    if (hitRedFlash > 0) hitRedFlash -= dt * 1.2;
 
     // Combo timer decay
     if (comboTimer > 0) {
@@ -5272,6 +5344,26 @@ function updateCombat(dt) {
                     combat.msg = 'MISSED! (drunk)'; combat.msgTimer = 500;
                     combat.attacking = false; combat.cooldown = a.cd; SFX.miss();
                     // Reset combo on miss
+                    if (comboCount > comboBest) comboBest = comboCount;
+                    comboCount = 0; comboTimer = 0;
+                    return;
+                }
+                // Enemy roll-dodge (peekaboo style)
+                let rollAI = getEnemyAI(en);
+                if (rollAI.rollDodgeChance && !combat.enemyWindup && Math.random() < rollAI.rollDodgeChance) {
+                    combat.msg = 'ROLLED UNDER!'; combat.msgTimer = 700;
+                    combat.attacking = false; combat.cooldown = 300;
+                    SFX.dodge();
+                    spawnDmgNum(W / 2, H * 0.35, 'ROLL!', '#ffaa00', false);
+                    spawnParticles(W / 2, H * 0.4, 6, '#ffaa00');
+                    // Immediate counter-hook after brief delay
+                    combat.enemyWindup = true;
+                    combat.enemyWindupTimer = 250;
+                    combat.enemyWindupHand = Math.random() < 0.5 ? 'left' : 'right';
+                    let atkPool = getEnemyAttacks(en);
+                    let counterPool = atkPool.filter(atk => atk.name.includes('HOOK') || atk.name.includes('COUNTER'));
+                    combat.enemyAttackInfo = counterPool.length > 0 ? counterPool[Math.floor(Math.random() * counterPool.length)] : atkPool[0];
+                    combat.enemyComboCount = 0;
                     if (comboCount > comboBest) comboBest = comboCount;
                     comboCount = 0; comboTimer = 0;
                     return;
@@ -5401,6 +5493,9 @@ function updateCombat(dt) {
                     spawnParticles(W / 2, H * 0.8, 6, '#ff0000');
                     SFX.playerHit();
 
+                    // Red screen flash
+                    hitRedFlash = 180;
+
                     // Blood overlay
                     bloodOverlay = 800;
                     bloodDrips = [];
@@ -5468,7 +5563,7 @@ function startGame() {
     damageNumbers = []; speedLines = []; impactRings = [];
     comboCount = 0; comboTimer = 0; comboDisplay = 0; comboBest = 0;
     smoothPlayerHP = 100; smoothEnemyHP = 100;
-    bloodOverlay = 0; bloodDrips = [];
+    bloodOverlay = 0; bloodDrips = []; hitRedFlash = 0;
     cameraTilt = 0; cameraTiltTarget = 0;
     slowMoTimer = 0; slowMoFactor = 1;
     screenWarp = 0; footstepTimer = 0;
