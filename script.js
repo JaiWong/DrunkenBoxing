@@ -1258,6 +1258,9 @@ let touchTurn = {
     lastX: 0,
 };
 
+// ─── Mobile Block Hold State ─────────────────────────────────────────
+let mobileBlockHold = { active: false, touchId: null };
+
 // ─── Mobile Explore Buttons ──────────────────────────────────────────
 let mobileExploreBtns = [
     { id: 'stairs', label: 'STAIRS', x: 0, y: 0, w: 70, h: 36, visible: () => !!stairPrompt },
@@ -1348,6 +1351,26 @@ canvas.addEventListener('touchstart', e => {
         else if (state === ST.COMBAT) {
             // Pause button
             if (hitTestPauseBtn(x, y)) { activatePause(ST.COMBAT); continue; }
+            // Check block button for hold-to-block
+            let en = combat.enemy;
+            let layout = getCombatBtnLayout(en);
+            let { row2, btnH, btnW, gap } = layout;
+            if (row2.length > 0) {
+                let r2Y = H - btnH - 6;
+                let r2Total = row2.length * (btnW + gap) - gap;
+                let r2X = (W - r2Total) / 2;
+                for (let bi = 0; bi < row2.length; bi++) {
+                    if (row2[bi].k === ' ') {
+                        let bx = r2X + bi * (btnW + gap);
+                        if (x >= bx && x <= bx + btnW && y >= r2Y && y <= r2Y + btnH) {
+                            mobileBlockHold.active = true;
+                            mobileBlockHold.touchId = touch.identifier;
+                            keys[' '] = true;
+                            continue;
+                        }
+                    }
+                }
+            }
             // Dodge left/right zones (same as mouse)
             if (y >= H * 0.2 && y <= H * 0.65) {
                 if (x < W * 0.12) { handleCombatKey('a', 'a'); continue; }
@@ -1430,6 +1453,11 @@ canvas.addEventListener('touchend', e => {
             touchTurn.active = false;
             touchTurn.touchId = null;
         }
+        if (mobileBlockHold.active && touch.identifier === mobileBlockHold.touchId) {
+            mobileBlockHold.active = false;
+            mobileBlockHold.touchId = null;
+            keys[' '] = false;
+        }
     }
 }, { passive: false });
 
@@ -1437,6 +1465,7 @@ canvas.addEventListener('touchcancel', e => {
     // Reset all touch state on cancel
     vJoy.active = false; vJoy.touchId = null; vJoy.dx = 0; vJoy.dy = 0;
     touchTurn.active = false; touchTurn.touchId = null;
+    if (mobileBlockHold.active) { mobileBlockHold.active = false; mobileBlockHold.touchId = null; keys[' '] = false; }
 }, { passive: false });
 
 // Prevent page scroll and zoom on the whole document when touching the game
@@ -1542,7 +1571,11 @@ function handleCanvasClick(x, y, button) {
                 for (let bi = 0; bi < row2.length; bi++) {
                     let bx = r2X + bi * (btnW + gap);
                     if (x >= bx && x <= bx + btnW && y >= r2Y && y <= r2Y + btnH) {
-                        if (row2[bi].k === ' ') { keys[' '] = true; setTimeout(() => { keys[' '] = false; }, 300); }
+                        if (row2[bi].k === ' ') {
+                        // On mobile, block hold is handled by touchstart/touchend tracking
+                        // On desktop, this click gives a brief block
+                        if (!isMobile) { keys[' '] = true; setTimeout(() => { keys[' '] = false; }, 300); }
+                    }
                         else if (row2[bi].k === 'Shift') drinkBottle();
                         else handleCombatKey(row2[bi].k, row2[bi].k.toLowerCase());
                         return;
