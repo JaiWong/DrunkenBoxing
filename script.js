@@ -164,9 +164,10 @@ function getEnemyAttacks(en) {
 const ST = {
     MENU: 0, EXPLORE: 1, FIGHT_INTRO: 2, COMBAT: 3, KO: 4,
     GAMEOVER: 5, WIN: 6, CUTSCENE: 7, SETTINGS: 8, SHOP: 9, LEVEL_TRANS: 10,
-    QTE: 11, DIALOGUE: 12, DANCE_BATTLE: 13, AWARDS: 14
+    QTE: 11, DIALOGUE: 12, DANCE_BATTLE: 13, AWARDS: 14, BOSS_CHOICE: 15
 };
 let state = ST.MENU;
+let bossChoiceCursor = 0;
 
 // ─── Shop Items (Skins with Special Moves) ───────────────────────────
 const SKINS = [
@@ -1079,6 +1080,11 @@ document.addEventListener('keydown', e => {
         case ST.WIN:
             if (e.key === 'Enter') { SFX.menuSelect(); state = ST.MENU; menuCursor = 0; }
             break;
+        case ST.BOSS_CHOICE:
+            if (k === 'arrowup' || k === 'w' || k === 'arrowleft' || k === 'a') { bossChoiceCursor = 0; SFX.menuMove(); }
+            if (k === 'arrowdown' || k === 's' || k === 'arrowright' || k === 'd') { bossChoiceCursor = 1; SFX.menuMove(); }
+            if (e.key === 'Enter' || e.key === ' ') { selectBossChoice(); }
+            break;
         case ST.DIALOGUE: {
             let dEntry = dialogueState.lines[dialogueState.idx];
             let dChoices = (dEntry && dEntry.choices && dialogueState.showChoices) ? dEntry.choices : [];
@@ -1626,6 +1632,17 @@ function handleCanvasClick(x, y, button) {
         case ST.WIN:
             SFX.menuSelect(); state = ST.MENU; menuCursor = 0;
             break;
+        case ST.BOSS_CHOICE: {
+            let bcBoxW = 320, bcBoxH = 100, bcGap = 30;
+            let bcTotalW = bcBoxW * 2 + bcGap;
+            let bcStartX = (W - bcTotalW) / 2;
+            let bcY = H * 0.5 - bcBoxH / 2;
+            if (y >= bcY && y <= bcY + bcBoxH) {
+                if (x >= bcStartX && x <= bcStartX + bcBoxW) { bossChoiceCursor = 0; selectBossChoice(); }
+                else if (x >= bcStartX + bcBoxW + bcGap && x <= bcStartX + bcTotalW) { bossChoiceCursor = 1; selectBossChoice(); }
+            }
+            break;
+        }
         case ST.FIGHT_INTRO:
             break;
         case ST.QTE:
@@ -3359,6 +3376,10 @@ function advanceCutscene() {
                 if (runStats.talkedOut > 0) grantAward('pacifist');
                 if (runStats.talkedOut >= 3) grantAward('silver_tongue');
             }
+            else if (combat.enemy && combat.enemy.name === 'Red King') {
+                bossChoiceCursor = 0;
+                state = ST.BOSS_CHOICE;
+            }
             else state = ST.EXPLORE;
         } else {
             combat.introTimer = 1200; state = ST.FIGHT_INTRO;
@@ -4211,6 +4232,116 @@ function renderGameOver() {
         ctx.fillText('[ CLICK or PRESS ENTER ]', W / 2, H * 0.85);
         ctx.shadowBlur = 0;
     }
+    renderScanlines();
+    ctx.textBaseline = 'alphabetic';
+}
+
+// ─── Boss Choice Screen (Red King beaten, enemies remain) ───────────
+function selectBossChoice() {
+    SFX.menuSelect();
+    if (bossChoiceCursor === 0) {
+        // Clean up — go back to explore to defeat remaining enemies
+        state = ST.EXPLORE;
+    } else {
+        // Stay as Red King — back to main menu
+        state = ST.MENU;
+        menuCursor = 0;
+    }
+}
+
+function renderBossChoice() {
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    let t = Date.now() * 0.001;
+
+    // Dim red ambiance
+    let ambGrad = ctx.createRadialGradient(W / 2, H * 0.3, 30, W / 2, H * 0.3, W * 0.6);
+    ambGrad.addColorStop(0, 'rgba(80,0,0,0.25)');
+    ambGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = ambGrad; ctx.fillRect(0, 0, W, H);
+
+    // Crown icon
+    ctx.fillStyle = '#ffcc00'; ctx.font = '36px Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#ffaa00'; ctx.shadowBlur = 12;
+    ctx.fillText('\u265A', W / 2, H * 0.08);
+    ctx.shadowBlur = 0;
+
+    // Title
+    ctx.fillStyle = '#ff2222'; ctx.font = 'bold 36px Courier New';
+    ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 20;
+    ctx.fillText('RED KING DEFEATED', W / 2, H * 0.19);
+    ctx.shadowBlur = 0;
+
+    // Subtitle
+    ctx.fillStyle = '#cc8888'; ctx.font = '14px Courier New';
+    ctx.fillText('But others in the shelter still stand...', W / 2, H * 0.28);
+
+    // Count remaining enemies
+    let remaining = 0;
+    for (let i = 0; i < LEVELS.length; i++)
+        for (let j = 0; j < LEVELS[i].enemies.length; j++)
+            if (!defeatedEnemies.has(i + '_' + j)) remaining++;
+
+    ctx.fillStyle = '#ff8844'; ctx.font = '13px Courier New';
+    ctx.fillText(remaining + ' fighter' + (remaining !== 1 ? 's' : '') + ' remaining', W / 2, H * 0.34);
+
+    // Two option boxes
+    let boxW = 300, boxH = 110, gap = 30;
+    let totalW = boxW * 2 + gap;
+    let startX = (W - totalW) / 2;
+    let boxY = H * 0.44;
+
+    for (let i = 0; i < 2; i++) {
+        let bx = startX + i * (boxW + gap);
+        let sel = bossChoiceCursor === i;
+        let pulse = sel ? 0.15 + Math.sin(t * 5) * 0.08 : 0;
+
+        // Box background
+        ctx.fillStyle = sel
+            ? (i === 0 ? 'rgba(0,80,40,' + (0.3 + pulse) + ')' : 'rgba(80,0,0,' + (0.3 + pulse) + ')')
+            : 'rgba(30,30,30,0.6)';
+        ctx.fillRect(bx, boxY, boxW, boxH);
+
+        // Border
+        ctx.strokeStyle = sel
+            ? (i === 0 ? '#44ff88' : '#ff4444')
+            : '#444444';
+        ctx.lineWidth = sel ? 3 : 1;
+        if (sel) { ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 10; }
+        ctx.strokeRect(bx, boxY, boxW, boxH);
+        ctx.shadowBlur = 0;
+
+        // Title text (big)
+        ctx.fillStyle = sel ? '#ffffff' : '#999999';
+        ctx.font = 'bold 18px Courier New';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        if (i === 0) {
+            ctx.fillText('Clean Up The', bx + boxW / 2, boxY + 30);
+            ctx.fillText('Homeless Shelter', bx + boxW / 2, boxY + 52);
+        } else {
+            ctx.fillText('Stay As Red', bx + boxW / 2, boxY + 30);
+            ctx.fillText('King Of Filth', bx + boxW / 2, boxY + 52);
+        }
+
+        // Subtitle text (smaller, dimmer)
+        ctx.fillStyle = sel ? '#aaaaaa' : '#666666';
+        ctx.font = '11px Courier New';
+        if (i === 0) {
+            ctx.fillText('( defeat unbeaten enemies )', bx + boxW / 2, boxY + 80);
+        } else {
+            ctx.fillText('( back to main menu )', bx + boxW / 2, boxY + 80);
+        }
+    }
+
+    // Navigation hint
+    ctx.fillStyle = '#555555'; ctx.font = '12px Courier New';
+    ctx.textAlign = 'center';
+    if (isMobile) {
+        ctx.fillText('Tap a choice', W / 2, H * 0.92);
+    } else {
+        ctx.fillText('[ A/D or Arrow Keys ] to select  \u2022  [ Enter ] to confirm', W / 2, H * 0.92);
+    }
+
     renderScanlines();
     ctx.textBaseline = 'alphabetic';
 }
@@ -5484,9 +5615,7 @@ function updateCombat(dt) {
                 if (player.health <= player.maxHealth * 0.1) grantAward('glass_cannon');
                 if (comboCount >= 10) grantAward('combo_king');
                 if (combat.fightTime && combat.fightTime < 8000) grantAward('speed_demon');
-                let vd = VILLAIN_DATA[en.name];
-                if (vd && vd.floor === 5) grantAward('boss_slayer');
-                if (vd && vd.floor === 5 && isMobile) grantAward('superior_human');
+                if (en.name === 'Red King') { grantAward('boss_slayer'); if (isMobile) grantAward('superior_human'); }
                 return;
             }
         }
@@ -5670,6 +5799,8 @@ function loop(time) {
             renderDanceBattle(); break;
         case ST.AWARDS:
             renderAwards(); break;
+        case ST.BOSS_CHOICE:
+            renderBossChoice(); break;
     }
 
     requestAnimationFrame(loop);
