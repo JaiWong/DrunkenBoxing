@@ -206,7 +206,7 @@ function getSkin() { return SKINS.find(s => s.id === saveData.equippedSkin) || S
 function getGloves() { return GLOVES_SHOP.find(g => g.id === saveData.equippedGloves) || GLOVES_SHOP[0]; }
 
 // ─── Settings ────────────────────────────────────────────────────────
-let settings = { difficulty: 1, screenShake: true, showMinimap: true, sensitivity: 1.0, speed: 1.0 };
+let settings = { difficulty: 1, screenShake: true, showMinimap: true, sensitivity: 0.3, speed: 1.0 };
 const DIFF_NAMES = ['EASY', 'NORMAL', 'HARD'];
 const DIFF_MULT = [
     { pDmg: 0.7, eHp: 0.8, eDmg: 0.8 },
@@ -1488,6 +1488,8 @@ function handleCanvasClick(x, y, button) {
             break;
         }
         case ST.COMBAT: {
+            // Pause button (top-center)
+            if (hitTestPauseBtn(x, y)) { activatePause(ST.COMBAT); return; }
             let en = combat.enemy;
             // Left click anywhere in combat area = Jab (key 1); Right click = Cross (key 2)
             // But first check if they clicked a specific button
@@ -1528,6 +1530,8 @@ function handleCanvasClick(x, y, button) {
             break;
         }
         case ST.EXPLORE: {
+            // Pause button (top-center)
+            if (hitTestPauseBtn(x, y)) { activatePause(ST.EXPLORE); return; }
             // Stats button toggle (top-left)
             if (x >= 10 && x <= 90 && y >= 10 && y <= 38) {
                 statsOpen = !statsOpen;
@@ -2413,6 +2417,9 @@ function renderExploreHUD() {
     ctx.strokeStyle = 'rgba(255,0,0,0.3)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(W/2 - titleW/2, 26); ctx.lineTo(W/2 + titleW/2, 26); ctx.stroke();
 
+    // ─── Pause button (top-center) ───
+    renderPauseButton();
+
     // ─── Stats toggle button (top-left) ───
     let sbW = 80, sbH = 28, sbX = 10, sbY = 10;
     ctx.fillStyle = statsOpen ? 'rgba(180,0,0,0.5)' : 'rgba(80,0,0,0.45)';
@@ -2528,6 +2535,31 @@ function renderProximity() {
         ctx.shadowBlur = 0;
         ctx.textBaseline = 'alphabetic';
     }
+}
+
+// ─── Pause Button Rendering & Hit Test ───────────────────────────────
+const PAUSE_BTN = { x: W / 2 - 16, y: 32, w: 32, h: 28 };
+function renderPauseButton() {
+    let bx = PAUSE_BTN.x, by = PAUSE_BTN.y, bw = PAUSE_BTN.w, bh = PAUSE_BTN.h;
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = '#aa4444'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(bx, by, bw, bh);
+    // Draw || icon
+    let barW = 5, barH = 16, gap = 5;
+    let cx = bx + bw / 2, cy = by + bh / 2;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cx - gap / 2 - barW, cy - barH / 2, barW, barH);
+    ctx.fillRect(cx + gap / 2, cy - barH / 2, barW, barH);
+}
+function hitTestPauseBtn(x, y) {
+    return x >= PAUSE_BTN.x && x <= PAUSE_BTN.x + PAUSE_BTN.w && y >= PAUSE_BTN.y && y <= PAUSE_BTN.y + PAUSE_BTN.h;
+}
+function activatePause(fromState) {
+    SFX.menuBack();
+    settingsPrevState = fromState;
+    state = ST.SETTINGS;
+    settingsCursor = 0;
 }
 
 // ─── Combat Scene Rendering ──────────────────────────────────────────
@@ -2716,6 +2748,9 @@ function renderCombatScene() {
         ctx.fillStyle = 'rgba(0,0,30,' + Math.min(0.15, slowMoTimer * 0.0003) + ')';
         ctx.fillRect(0, 0, W, H);
     }
+
+    // ─── Pause Button (top-center) ────────────────────────────────────
+    renderPauseButton();
 
     // ─── Clickable Combat Buttons ───────────────────────────────────
     let layout = getCombatBtnLayout(en);
