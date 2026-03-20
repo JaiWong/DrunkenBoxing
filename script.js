@@ -28,7 +28,7 @@ if (!CanvasRenderingContext2D.prototype.roundRect) {
 // ─── Sound Effects (Web Audio API) ───────────────────────────────────
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let audioCtx = null;
-function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); return audioCtx; }
+function ensureAudio() { if (!audioCtx) audioCtx = new AudioCtx(); if (audioCtx.state === 'suspended') audioCtx.resume(); return audioCtx; }
 
 function playTone(freq, duration, type, vol, ramp) {
     let ctx = ensureAudio();
@@ -459,6 +459,29 @@ let drunkLevel = 0;
 let drunkNotify = '';
 let drunkNotifyTimer = 0;
 let drunkBlurAmount = 0;
+let drinkAnimTimer = 0;
+let drinkAnimDuration = 0;
+let drinkAnimActive = false;
+let drinkAnimPending = false;
+
+// Drinking animation video (muted - canvas rendering only)
+let drinkAnimVideo = document.createElement('video');
+drinkAnimVideo.src = 'Drinking animation.mp4';
+drinkAnimVideo.preload = 'auto';
+drinkAnimVideo.muted = true;
+drinkAnimVideo.playsInline = true;
+drinkAnimVideo.style.display = 'none';
+document.body.appendChild(drinkAnimVideo);
+drinkAnimVideo.load();
+let drinkVideoReady = false;
+drinkAnimVideo.addEventListener('canplaythrough', function() { drinkVideoReady = true; });
+drinkAnimVideo.addEventListener('ended', function() {
+    drinkAnimActive = false;
+    drinkAnimTimer = 0;
+});
+// Separate audio file extracted from the animation video
+let drinkAudio = new Audio('drinking-audio.mp3');
+drinkAudio.preload = 'auto';
 let armBob = 0;
 let defeatedEnemies = new Set();
 let pickedBottles = new Set();
@@ -1803,15 +1826,98 @@ function exitSettings() {
 
 // ─── Drink Bottle ────────────────────────────────────────────────────
 function drinkBottle() {
-    if (inventory.bottles <= 0) return;
+    if (inventory.bottles <= 0 || drinkAnimActive) return;
     inventory.bottles--;
+    drinkAnimActive = true;
+    drinkAnimPending = true;
+    drinkAnimTimer = 0;
+    // Play the animation audio
+    drinkAudio.currentTime = 0;
+    drinkAudio.play().catch(function() {});
+    if (drinkVideoReady) {
+        drinkAnimDuration = drinkAnimVideo.duration * 1000;
+        drinkAnimVideo.currentTime = 0;
+        drinkAnimVideo.play().catch(function() {});
+    } else {
+        drinkAnimDuration = 900;
+    }
+}
+
+function applyDrinkEffect() {
     drinkCount++;
     runStats.drinksUsed++;
     player.health = player.maxHealth;
-    SFX.drink();
     if (drinkCount === 1) { drunkLevel = 1; drunkNotify = 'TIPSY'; drunkNotifyTimer = 2500; drunkBlurAmount = 2; }
     else if (drinkCount >= 2) { drunkLevel = 2; drunkNotify = 'DRUNK'; drunkNotifyTimer = 3500; drunkBlurAmount = 5; }
     if (runStats.drinksUsed >= 5) grantAward('bar_tab');
+}
+
+function updateDrinkAnim(dt) {
+    if (!drinkAnimActive) return;
+    drinkAnimTimer += dt;
+    // Apply the heal/drunk effect at the midpoint
+    if (drinkAnimPending && drinkAnimTimer >= drinkAnimDuration * 0.5) {
+        drinkAnimPending = false;
+        applyDrinkEffect();
+    }
+    if (drinkAnimTimer >= drinkAnimDuration && drinkAnimDuration > 0) {
+        drinkAnimActive = false;
+        drinkAnimTimer = 0;
+        drinkAnimVideo.pause();
+    }
+}
+
+function renderDrinkAnimOverlay() {
+    if (!drinkAnimActive) return;
+    let t = drinkAnimTimer / (drinkAnimDuration || 1); // 0 -> 1
+
+    // Draw the video frame scaled to fill the canvas
+    if (drinkVideoReady && drinkAnimVideo.readyState >= 2) {
+        ctx.save();
+        // Calculate cover-fit dimensions (fill canvas, crop overflow)
+        let vw = drinkAnimVideo.videoWidth || W;
+        let vh = drinkAnimVideo.videoHeight || H;
+        let scale = Math.max(W / vw, H / vh);
+        let dw = vw * scale;
+        let dh = vh * scale;
+        let dx = (W - dw) / 2;
+        let dy = (H - dh) / 2;
+        ctx.drawImage(drinkAnimVideo, dx, dy, dw, dh);
+        ctx.restore();
+    }
+
+    // Green healing flash at midpoint
+    let gulpAlpha = 0;
+    if (t >= 0.35 && t < 0.65) {
+        let p = (t - 0.35) / 0.3;
+        gulpAlpha = Math.sin(p * Math.PI) * 0.6;
+    }
+    if (gulpAlpha > 0) {
+        ctx.fillStyle = 'rgba(0,255,80,' + (gulpAlpha * 0.12) + ')';
+        ctx.fillRect(0, 0, W, H);
+        // Healing particles rising
+        let numP = Math.floor(gulpAlpha * 8);
+        for (let i = 0; i < numP; i++) {
+            let px = W / 2 + Math.sin(Date.now() * 0.003 + i * 2) * 60;
+            let py = H * 0.5 - (Date.now() * 0.08 + i * 30) % 120;
+            ctx.fillStyle = 'rgba(100,255,100,' + (gulpAlpha * 0.7) + ')';
+            ctx.font = '16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('+', px, py);
+        }
+    }
+
+    // "DRINKING..." text
+    if (t < 0.85) {
+        let textAlpha = Math.min(1, t * 3) * (t < 0.7 ? 1 : (1 - (t - 0.7) / 0.15));
+        ctx.fillStyle = 'rgba(100,255,100,' + textAlpha + ')';
+        ctx.font = 'bold 24px Courier New';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#00ff44'; ctx.shadowBlur = 10;
+        ctx.fillText('DRINKING...', W / 2, H * 0.25);
+        ctx.shadowBlur = 0;
+        ctx.textBaseline = 'alphabetic';
+    }
 }
 
 // ─── Combat Key Handling ─────────────────────────────────────────────
@@ -2861,6 +2967,7 @@ function renderCombatScene() {
     renderDamageNumbers();
 
     renderParticles();
+    renderDrinkAnimOverlay();
     applyDrunkEffects();
 
     // Slow-mo effect overlay
@@ -4445,6 +4552,7 @@ function renderExplore() {
     renderDust();
 
     renderExploreArms();
+    renderDrinkAnimOverlay();
     renderMinimap();
     renderExploreHUD();
     renderScanlines();
@@ -5295,6 +5403,7 @@ function updateExplore(dt) {
     }
 
     if (drunkNotifyTimer > 0) drunkNotifyTimer -= dt;
+    updateDrinkAnim(dt);
 
     // Stair prompt
     let stair = getNearbyStair();
@@ -5390,6 +5499,7 @@ function updateCombat(dt) {
     if (combat.cooldown > 0) combat.cooldown -= effectiveDt;
     if (combat.dodgeCooldown > 0) combat.dodgeCooldown -= effectiveDt;
     if (drunkNotifyTimer > 0) drunkNotifyTimer -= dt;
+    updateDrinkAnim(dt);
 
     // Camera tilt smooth interpolation
     cameraTilt += (cameraTiltTarget - cameraTilt) * 0.1;
